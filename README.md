@@ -1,8 +1,6 @@
-# JEPA control: does the latent representation preserve controllability of unstable modes?
+# JEPA control - Linear Models
 
-This is a small, fully-linear codebase built to study a question in
-isolation, where it can be analyzed exactly instead of only observed
-empirically on pixels: when you jointly train an encoder and a predictor
+This is a small, fully-linear codebase built to understand when you jointly train an encoder and a predictor
 with a **multistep prediction loss + SIGReg** (sketched isotropic-Gaussian
 regularization, as in LeJEPA) on an **open-loop-unstable** system, does the
 resulting latent representation retain enough information about the
