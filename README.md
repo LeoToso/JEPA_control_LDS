@@ -1,12 +1,9 @@
 # JEPA control - Linear Models
 
-This is a small, fully-linear codebase built to understand when you jointly train an encoder and a predictor
+This is fully-linear codebase built to understand when your jointly trained encoder and predictor
 with a **multistep prediction loss + SIGReg** (sketched isotropic-Gaussian
-regularization, as in LeJEPA) on an **open-loop-unstable** system, does the
-resulting latent representation retain enough information about the
-unstable mode to design a controller that stabilizes the *original*
-dynamics? And does swapping SIGReg for **multistep action reconstruction**
-fix it?
+regularization, as in LeJEPA) on an **open-loop-unstable** system retain enough information about the
+unstable dynamics of the system to design stabilizing controllers. Moreover, we also aim to understand whether swapping SIGReg for **multistep action reconstruction** fix it?
 
 Everything -- ground-truth dynamics, "sensing", encoder, predictor, control
 synthesis, and evaluation -- is a single linear layer.
@@ -24,7 +21,7 @@ together end-to-end, no closed-form solves):
 | 3 -- Cartpole | **0%** | **100%** |
 
 \* Example 2 uses a system where BOTH modes are open-loop stable -- SIGReg
-still collapses the low-variance mode (same mechanism as Example 1), but
+still collapses the low-variance mode (same as Example 1), but
 since neither mode is actually unstable, losing one no longer breaks
 control. 
 
@@ -36,10 +33,7 @@ question is only whether the learned representation lets you find it), and
 use `latent_dim < system.n` -- a latent strictly smaller than the true
 state dimension -- so that the multistep prediction loss `L_pred` ties
 *exactly* at zero between multiple candidate subspaces the encoder could
-retain (only eigenspaces / A-invariant subspaces are exactly forward
--invariant under noiseless linear dynamics). This turns "did the
-regularizer preserve the unstable mode" into a clean either/or outcome
-instead of a matter of degree.
+retain. 
 
 - **Example 1 -- Synthetic, Unstable**
   (`experiments/example1_synthetic_unstable/`): a minimal 2-state system
@@ -81,20 +75,10 @@ direction.
 
 ## The losses (`src/jepa_lds/losses.py`)
 
-- **`L_pred`**: recursive multistep latent rollout error,
-  `sum_h ||z_{t+h} - f_pred(z_{t+h-1}, a_{t+h-1})||^2`.
-- **SIGReg**: embeddings are projected onto random 1D directions, and each
-  projection is pushed toward the characteristic function of a standard
-  normal (an Epps-Pulley-type statistic). By the Cramér-Wold theorem,
-  matching all 1D projections implies the joint distribution is isotropic
-  Gaussian. Crucially this only constrains the *marginal distribution* of
-  `z` -- it has no notion of actions or controllability, and (since the
-  encoder has a free rescaling) no preference between any two candidate
-  subspaces that are both marginally Gaussian.
+- **`L_pred`**: recursive multistep latent rollout loss.
+- **SIGReg**: same as in https://github.com/galilai-group/lejepa
 - **Multistep action reconstruction**: a linear decoder recovers the
-  applied action sequence from a window of consecutive latents. Because
-  `B` couples the action into the unstable mode, this loss directly forces
-  the encoder to retain the action-relevant subspace.
+  applied action sequence from a window of consecutive latents.
 
 ## Designing and evaluating a controller
 
