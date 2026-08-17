@@ -14,7 +14,7 @@ synthesis, and evaluation -- is a single linear layer.
 ## TL;DR result
 
 Three examples, each trained with two configs (`L_pred + L_SIGReg` vs.
-`L_pred + L_act`) via naive joint SGD (encoder and predictor optimized
+`L_pred + L_act`) via joint SGD (encoder and predictor optimized
 together end-to-end, no closed-form solves):
 
 | Example | SIGReg: closed-loop success | act-recon: closed-loop success |
