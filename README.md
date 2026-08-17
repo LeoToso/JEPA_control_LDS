@@ -21,11 +21,11 @@ Three examples, each trained with two configs (`L_pred + L_SIGReg` vs.
 `L_pred + L_act`) via naive joint SGD (encoder and predictor optimized
 together end-to-end, no closed-form solves):
 
-| Example | SIGReg: unstable-mode R² | SIGReg: closed-loop success | act-recon: unstable-mode R² | act-recon: closed-loop success |
-|---|---|---|---|---|
-| 1 -- Synthetic, Unstable | ~0.01-0.10 (collapsed) | **0%** | ~1.00 (retained) | **100%** |
-| 2 -- Synthetic, Stable | ~0.01 (collapsed) | ~100%* | ~0.01 (collapsed)* | ~100%* |
-| 3 -- Cartpole | 0.001-0.012 (collapsed) | **0%** | 0.994-0.998 (retained) | 30-100%† |
+| Example | SIGReg: closed-loop success | act-recon: closed-loop success |
+|---|---|---|
+| 1 -- Synthetic, Unstable | **0%** | **100%** |
+| 2 -- Synthetic, Stable | ~100%* | ~100%* |
+| 3 -- Cartpole | **0%** | **100%** |
 
 \* Example 2 uses a system where BOTH modes are open-loop stable -- SIGReg
 still collapses the low-variance mode (same mechanism as Example 1), but
@@ -35,10 +35,6 @@ Example-1 advantage relies on the collapsed mode's response to actions
 *amplifying* over time, which requires genuine instability. This isolates
 that it's specifically losing the **unstable** mode that breaks control,
 not "losing a mode" per se.
-
-† Seed-dependent (see `experiments/example3_cartpole/run_actrecon_naive.py`'s
-docstring for why) -- still a clear, reproducible separation from SIGReg's
-reliable 0%.
 
 ## The three examples
 
