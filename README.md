@@ -9,9 +9,7 @@ dynamics? And does swapping SIGReg for **multistep action reconstruction**
 fix it?
 
 Everything -- ground-truth dynamics, "sensing", encoder, predictor, control
-synthesis, and evaluation -- is a single linear layer and closed-form/SGD
-training, so the whole pipeline is exact and inspectable at every step, with
-no confounds from a CNN/ViT encoder or a nonlinear plant.
+synthesis, and evaluation -- is a single linear layer.
 
 ## TL;DR result
 
