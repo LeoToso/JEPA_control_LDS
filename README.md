@@ -26,11 +26,7 @@ together end-to-end, no closed-form solves):
 \* Example 2 uses a system where BOTH modes are open-loop stable -- SIGReg
 still collapses the low-variance mode (same mechanism as Example 1), but
 since neither mode is actually unstable, losing one no longer breaks
-control. Action-reconstruction *also* collapses here, because its
-Example-1 advantage relies on the collapsed mode's response to actions
-*amplifying* over time, which requires genuine instability. This isolates
-that it's specifically losing the **unstable** mode that breaks control,
-not "losing a mode" per se.
+control. 
 
 ## The three examples
 
