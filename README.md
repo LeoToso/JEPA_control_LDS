@@ -62,7 +62,7 @@ instead of a matter of degree.
   upright equilibrium (`make_linearized_cartpole_system`; state = `[cart
   pos, cart vel, pole angle, pole angular vel]`). Eigenvalues `{1, 1,
   ~1.10 (unstable pole), ~0.91 (stable pole)}` -- the repeated `1` is a
-  genuine (non-diagonalizable) Jordan block spanning cart position/velocity.
+  (non-diagonalizable) Jordan block spanning cart position/velocity.
   `latent_dim=3` is the n-state generalization of the same construction;
   see `experiments/example3_cartpole/run_sigreg_naive.py`'s docstring for
   the extra subtlety this system's Jordan block introduces.
@@ -77,14 +77,7 @@ reflects realistic data collection near an unstable equilibrium. A policy
 (human or automated) that avoids catastrophic failure will naturally spend
 most of its time exploring near-equilibrium, stable-mode excursions and
 only rarely encounter the large deviations that reveal the unstable
-direction. Under a symmetric/isotropic initial-condition distribution,
-`L_pred`'s own gradient already has a built-in incentive to keep the
-unstable (growing) mode over the stable (shrinking) one, since omitting a
-growing quantity costs more prediction error over a rollout -- which is
-why SIGReg can *look* safe under "nice" data. The asymmetric distribution
-is a minimal stress test that removes that accidental protection, so what
-SIGReg's own objective actually does (nothing dynamics-aware) becomes
-visible.
+direction. 
 
 ## The losses (`src/jepa_lds/losses.py`)
 
@@ -101,9 +94,7 @@ visible.
 - **Multistep action reconstruction**: a linear decoder recovers the
   applied action sequence from a window of consecutive latents. Because
   `B` couples the action into the unstable mode, this loss directly forces
-  the encoder to retain the action-relevant subspace -- which is only
-  reliably the *unstable* one when that mode's response to actions
-  genuinely amplifies over time (see Example 2's caveat above).
+  the encoder to retain the action-relevant subspace.
 
 ## Designing and evaluating a controller
 
