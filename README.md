@@ -17,7 +17,7 @@ together end-to-end, no closed-form solves):
 | Example | SIGReg: closed-loop success | act-recon: closed-loop success |
 |---|---|---|
 | 1 -- Synthetic, Unstable | **0%** | **100%** |
-| 2 -- Synthetic, Stable | ~100%* | ~100%* |
+| 2 -- Synthetic, Stable | 100%* | 100%* |
 | 3 -- Cartpole | **0%** | **100%** |
 
 \* Example 2 uses a system where BOTH modes are open-loop stable -- SIGReg
