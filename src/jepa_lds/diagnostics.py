@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import numpy as np
 import torch
+from scipy.linalg import fractional_matrix_power
 
 from .control import closed_loop_rollout, encoder_state_to_latent_map
 from .data import EpisodeBatch, ObservationModel
@@ -160,6 +161,44 @@ def unstable_eigenvector_alignment(
     return result
 
 
+def _interpolate_intrastep(xs: np.ndarray, A_cl: np.ndarray, plot_substeps: int) -> np.ndarray:
+    """Refines a sequence of TRUE discrete samples `xs` (shape (n_steps+1, n))
+    into a finer curve for PLOTTING ONLY, by inserting `plot_substeps - 1`
+    points between every consecutive pair x_t, x_{t+1} = A_cl @ x_t.
+
+    This is deliberately NOT plain linear interpolation: since the closed
+    loop here (at zero measurement/process noise, which is what
+    `closed_loop_trajectory_panel` always simulates) is an exact autonomous
+    LTI recursion x_{t+1} = A_cl x_t, the mathematically correct intra-step
+    curve is the fractional-time flow x(t+f) = A_cl^f @ x_t for f in (0,1),
+    computed via `scipy.linalg.fractional_matrix_power`. Unlike straight-line
+    interpolation (a pure plotting convention that two different discrete
+    trajectories' segments can cross without the underlying dynamics ever
+    coinciding), this curve is the actual state path a continuous-time flow
+    with this one-step map would trace, which by the same uniqueness
+    argument that rules out crossings for continuous-time ODEs cannot cross
+    another such trajectory's fractional-flow curve either.
+
+    Caveat: if `A_cl` has an isolated negative real eigenvalue (no complex
+    conjugate partner), no REAL matrix has that eigenvalue as its own square
+    (a pure sign flip can't be reached by continuously flowing without
+    rotating through the complex plane), so `fractional_matrix_power` returns
+    a complex result there; we take the real part, which is a smooth,
+    deterministic, and visually correct-looking approximation but not a
+    unique physical continuation in that edge case."""
+    if plot_substeps <= 1:
+        return xs
+    fracs = [k / plot_substeps for k in range(1, plot_substeps)]
+    A_fracs = [np.real(fractional_matrix_power(A_cl, f)) for f in fracs]
+    n_steps = xs.shape[0] - 1
+    out = [xs[0]]
+    for t in range(n_steps):
+        for A_f in A_fracs:
+            out.append(A_f @ xs[t])
+        out.append(xs[t + 1])
+    return np.stack(out, axis=0)
+
+
 def closed_loop_trajectory_panel(
     system: LTISystem,
     obs_model: ObservationModel,
@@ -169,6 +208,7 @@ def closed_loop_trajectory_panel(
     dims: tuple[int, int] = (0, 1),
     n_steps: int = 300,
     seed: int = 0,
+    plot_substeps: int = 1,
 ) -> dict:
     """Panel 2 (trajectory view): one closed-loop rollout per starting state
     in `x0s`, under the LEARNED controller u_t = -K_z * encoder(y_t) on the
@@ -176,14 +216,24 @@ def closed_loop_trajectory_panel(
     particular starting point actually converge to the equilibrium" view.
     Each x0 is simulated with its own draw from a seeded RNG stream (so
     results are reproducible, but not identical) for the observation-model
-    measurement noise."""
+    measurement noise.
+
+    `plot_substeps` (default 1, i.e. no change): if > 1, refines the plotted
+    curve with `plot_substeps - 1` intra-step points per true discrete step,
+    via the exact fractional-time closed-loop flow (see
+    `_interpolate_intrastep`) -- purely a rendering refinement. `n_steps`,
+    success metrics, and every other diagnostic are unaffected; only what
+    Panel 2 draws changes."""
     d0, d1 = dims
     rng = np.random.default_rng(seed)
+    M = encoder_state_to_latent_map(system, obs_model, encoder)
+    A_cl = system.A - system.B @ K_z @ M
     trajectories = []
     for x0 in x0s:
         x0_arr = np.asarray(x0, dtype=np.float64)
         xs = closed_loop_rollout(system, obs_model, encoder, K_z, n_steps, x0_arr, process_noise_std=0.0, rng=rng)
-        trajectories.append(xs[:, [d0, d1]])
+        xs_fine = _interpolate_intrastep(xs, A_cl, plot_substeps)
+        trajectories.append(xs_fine[:, [d0, d1]])
     return {
         "dims": dims,
         "trajectories": trajectories,

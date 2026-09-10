@@ -51,6 +51,27 @@ def test_closed_loop_trajectory_panel_converges_for_faithful_setup():
     assert np.linalg.norm(xs[-1]) < np.linalg.norm(xs[0])
 
 
+def test_closed_loop_trajectory_panel_substeps_refines_without_changing_true_samples():
+    """`plot_substeps>1` should insert exact fractional-time closed-loop-flow
+    points between each pair of true discrete samples (not just subdivide
+    the straight line drawn between them), and every `substeps`-th point of
+    the refined curve should recover the true discrete trajectory exactly
+    -- i.e. this only adds points, it never perturbs the real samples."""
+    system, obs_model, _batch, encoder, pred = _setup()
+    ctrl = design_latent_controller(pred)
+    x0 = np.array([5.0, 5.0])
+    n_steps, substeps = 4, 3
+    panel_coarse = closed_loop_trajectory_panel(system, obs_model, encoder, ctrl["K_z"], [x0], dims=(0, 1), n_steps=n_steps)
+    panel_fine = closed_loop_trajectory_panel(
+        system, obs_model, encoder, ctrl["K_z"], [x0], dims=(0, 1), n_steps=n_steps, plot_substeps=substeps,
+    )
+    xs_coarse = panel_coarse["trajectories"][0]
+    xs_fine = panel_fine["trajectories"][0]
+    assert xs_coarse.shape == (n_steps + 1, 2)
+    assert xs_fine.shape == (1 + n_steps * substeps, 2)
+    assert np.allclose(xs_fine[::substeps], xs_coarse, atol=1e-6)
+
+
 def test_lyapunov_decrease_panel_shape_and_decrease_near_origin():
     system, obs_model, _batch, encoder, pred = _setup()
     ctrl = design_latent_controller(pred)

@@ -78,6 +78,15 @@ def main():
         "(overrides the default 4-corner box from --traj-dim0-max/--traj-dim1-max)",
     )
     p.add_argument("--n-steps", type=int, default=300, help="closed-loop rollout length for panel 2's trajectories")
+    p.add_argument(
+        "--traj-substeps", type=int, default=1,
+        help="intra-step points to draw per true discrete step in panel 2 (default 1 = none, i.e. the current "
+        "straight-line-between-samples behavior). Values > 1 replace the straight-line interpolation with the "
+        "exact fractional-time closed-loop flow x(t+f)=A_cl^f x_t, a purely cosmetic refinement that does not "
+        "affect n_steps, success metrics, or any other diagnostic -- see diagnostics.py's "
+        "_interpolate_intrastep docstring for why this (and not plain line subdivision) is what actually "
+        "removes the 'do these lines cross' visual artifact of connecting discrete samples with straight lines.",
+    )
 
     p.add_argument("--skip-lyapunov", action="store_true", help="omit panel 3 (Lyapunov certificate) -- figure has just panels 1-2")
     p.add_argument("--hide-axis-units", action="store_true", help="omit the '(deg)' / unit suffix from axis labels")
@@ -155,7 +164,7 @@ def main():
 
     print("[panel 2] closed-loop trajectories...")
     traj_panel = closed_loop_trajectory_panel(
-        system, obs_model, encoder, K_z, x0s, dims=dims, n_steps=args.n_steps,
+        system, obs_model, encoder, K_z, x0s, dims=dims, n_steps=args.n_steps, plot_substeps=args.traj_substeps,
     )
     for x0, xs in zip(x0s, traj_panel["trajectories"]):
         print(f"  x0={x0[list(dims)]}  ->  final in-plane distance={float(np.linalg.norm(xs[-1])):.3g}")
