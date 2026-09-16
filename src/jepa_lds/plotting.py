@@ -110,13 +110,20 @@ def _draw_eigenvector_alignment_panel_dual(
     ax.quiver(0, 0, va[0], va[1], color="tab:blue", alpha=0.75, zorder=5, **arrow_kwargs)
     legend_handles.append(Line2D([0], [0], color="tab:blue", alpha=0.75, linewidth=2.5, label=f"learned ({label_a})"))
 
+    # Dashing a FancyArrowPatch dashes its whole outline, including the
+    # arrowhead itself, which distorts its shape -- so the shaft (dashed
+    # line) and head (short, solid, undashed arrow right at the tip) are
+    # drawn as two separate pieces instead of one dashed arrow.
     vb = eig_panel_b["v_learned"]
+    head_frac = 0.85
+    vb_shaft_end = (head_frac * vb[0], head_frac * vb[1])
+    ax.plot(
+        [0, vb_shaft_end[0]], [0, vb_shaft_end[1]],
+        color="darkorange", alpha=0.85, linewidth=2.2, linestyle=(0, (5, 3)), zorder=6,
+    )
     ax.annotate(
-        "", xy=(vb[0], vb[1]), xytext=(0, 0), zorder=6,
-        arrowprops=dict(
-            arrowstyle="-|>", color="darkorange", alpha=0.85, linewidth=2.2,
-            linestyle=(0, (5, 3)), mutation_scale=18,
-        ),
+        "", xy=(vb[0], vb[1]), xytext=vb_shaft_end, zorder=6,
+        arrowprops=dict(arrowstyle="-|>", color="darkorange", alpha=0.85, linewidth=2.2, mutation_scale=18, shrinkA=0, shrinkB=0),
     )
     legend_handles.append(
         Line2D([0], [0], color="darkorange", alpha=0.85, linewidth=2.2, linestyle=(0, (5, 3)), label=f"learned ({label_b})")
