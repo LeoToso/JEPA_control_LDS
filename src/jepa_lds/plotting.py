@@ -86,7 +86,7 @@ def _draw_eigenvector_alignment_panel_dual(
     `unstable_eigenvector_alignment` outputs for the SAME system/dims (only
     their `v_learned` differs); ground truth is taken from `eig_panel_a`.
 
-    Color scheme: light green for ground truth, blue for `label_a` (SIG),
+    Color scheme: green for ground truth, blue for `label_a` (SIG),
     dashed orange for `label_b` (EP-IDM) -- dashed rather than another solid
     arrow so that when it nearly aligns with the ground-truth arrow, the
     gaps in the dash still let the solid ground-truth arrow show through
@@ -103,8 +103,8 @@ def _draw_eigenvector_alignment_panel_dual(
         legend_handles.append(Line2D([0], [0], color="grey", alpha=0.7, linewidth=2.5, label=other_mode_label))
 
     vu = eig_panel_a["v_true_unstable"]
-    ax.quiver(0, 0, vu[0], vu[1], color="lightgreen", zorder=4, **arrow_kwargs)
-    legend_handles.append(Line2D([0], [0], color="lightgreen", linewidth=2.5, label=dominant_mode_label))
+    ax.quiver(0, 0, vu[0], vu[1], color="#4CAF50", zorder=4, **arrow_kwargs)
+    legend_handles.append(Line2D([0], [0], color="#4CAF50", linewidth=2.5, label=dominant_mode_label))
 
     va = eig_panel_a["v_learned"]
     ax.quiver(0, 0, va[0], va[1], color="tab:blue", alpha=0.75, zorder=5, **arrow_kwargs)
