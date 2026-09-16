@@ -84,27 +84,51 @@ def _draw_eigenvector_alignment_panel_dual(
     visual comparison of which config's learned dominant direction actually
     tracks the true unstable mode. `eig_panel_a`/`eig_panel_b` are both
     `unstable_eigenvector_alignment` outputs for the SAME system/dims (only
-    their `v_learned` differs); ground truth is taken from `eig_panel_a`."""
+    their `v_learned` differs); ground truth is taken from `eig_panel_a`.
+
+    Color scheme: light green for ground truth, blue for `label_a` (SIG),
+    dashed orange for `label_b` (EP-IDM) -- dashed rather than another solid
+    arrow so that when it nearly aligns with the ground-truth arrow, the
+    gaps in the dash still let the solid ground-truth arrow show through
+    underneath instead of being fully occluded."""
     d0, d1 = eig_panel_a["dims"]
     arrow_kwargs = dict(angles="xy", scale_units="xy", scale=1, width=0.012, headwidth=3.5, headlength=4.5, headaxislength=4)
     theta = np.linspace(0, 2 * np.pi, 200)
     ax.plot(np.cos(theta), np.sin(theta), color="grey", linewidth=0.7, linestyle=":", alpha=0.6)
+
+    legend_handles = []
     if eig_panel_a.get("v_true_stable") is not None:
         vs = eig_panel_a["v_true_stable"]
-        ax.quiver(0, 0, vs[0], vs[1], color="grey", alpha=0.7, label=other_mode_label, **arrow_kwargs)
+        ax.quiver(0, 0, vs[0], vs[1], color="grey", alpha=0.7, **arrow_kwargs)
+        legend_handles.append(Line2D([0], [0], color="grey", alpha=0.7, linewidth=2.5, label=other_mode_label))
+
     vu = eig_panel_a["v_true_unstable"]
-    ax.quiver(0, 0, vu[0], vu[1], color="green", label=dominant_mode_label, zorder=4, **arrow_kwargs)
+    ax.quiver(0, 0, vu[0], vu[1], color="lightgreen", zorder=4, **arrow_kwargs)
+    legend_handles.append(Line2D([0], [0], color="lightgreen", linewidth=2.5, label=dominant_mode_label))
+
     va = eig_panel_a["v_learned"]
+    ax.quiver(0, 0, va[0], va[1], color="tab:blue", alpha=0.75, zorder=5, **arrow_kwargs)
+    legend_handles.append(Line2D([0], [0], color="tab:blue", alpha=0.75, linewidth=2.5, label=f"learned ({label_a})"))
+
     vb = eig_panel_b["v_learned"]
-    ax.quiver(0, 0, va[0], va[1], color="crimson", alpha=0.65, label=f"learned ({label_a})", zorder=5, **arrow_kwargs)
-    ax.quiver(0, 0, vb[0], vb[1], color="darkorange", alpha=0.65, label=f"learned ({label_b})", zorder=5, **arrow_kwargs)
+    ax.annotate(
+        "", xy=(vb[0], vb[1]), xytext=(0, 0), zorder=6,
+        arrowprops=dict(
+            arrowstyle="-|>", color="darkorange", alpha=0.85, linewidth=2.2,
+            linestyle=(0, (5, 3)), mutation_scale=18,
+        ),
+    )
+    legend_handles.append(
+        Line2D([0], [0], color="darkorange", alpha=0.85, linewidth=2.2, linestyle=(0, (5, 3)), label=f"learned ({label_b})")
+    )
+
     ax.scatter([0], [0], **_EQUILIBRIUM_STYLE)
     ax.set_xlim(-1.08, 1.08)
     ax.set_ylim(-1.08, 1.08)
     ax.set_aspect("equal")
     ax.set_xlabel(_axis_label(d0, suffix), fontsize=label_fontsize)
     ax.set_ylabel(_axis_label(d1, suffix), fontsize=label_fontsize)
-    ax.legend(fontsize=legend_fontsize, loc=legend_loc)
+    ax.legend(handles=legend_handles, fontsize=legend_fontsize, loc=legend_loc)
     ax.tick_params(labelsize=tick_labelsize)
 
 
