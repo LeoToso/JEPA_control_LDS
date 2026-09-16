@@ -117,12 +117,21 @@ def _draw_trajectory_panel(
     legend_fontsize: float = 15,
     legend_loc: str = "lower left",
     title: str | None = None,
+    xlim: float | None = None,
+    ylim: float | None = None,
 ):
     """Draws the closed-loop-trajectories panel (a handful of trajectories
     under the learned controller, starting from marked initial states,
     converging to the equilibrium vs. diverging away from it) onto a single
     axes -- shared by `plot_local_stability_probe`'s panel 2 and
-    `plot_compare_local_stability`."""
+    `plot_compare_local_stability`.
+
+    `xlim`/`ylim` (default None): symmetric half-width override for the
+    displayed axes (i.e. the axes span `(-xlim, xlim)`/`(-ylim, ylim)`).
+    By default the half-width is auto-computed from the starting points'
+    own extent (with a 15% margin), which can clip a trajectory's early
+    transient if it swings out further than its own x0 -- pass an explicit
+    value here to widen the frame instead."""
     d0t, d1t = traj_panel["dims"]
     for i, (xs, x0) in enumerate(zip(traj_panel["trajectories"], traj_panel["x0s"])):
         color = _TRAJ_COLORS[i % len(_TRAJ_COLORS)]
@@ -130,8 +139,8 @@ def _draw_trajectory_panel(
         ax.scatter([x0[0]], [x0[1]], facecolors="none", edgecolors=color, marker="o", s=90, linewidths=1.8, zorder=4)
     ax.scatter([0], [0], **_EQUILIBRIUM_STYLE)
     x0s_arr = np.array(traj_panel["x0s"])
-    lim0 = 1.15 * np.max(np.abs(x0s_arr[:, 0])) if np.any(x0s_arr[:, 0] != 0) else 1.0
-    lim1 = 1.15 * np.max(np.abs(x0s_arr[:, 1])) if np.any(x0s_arr[:, 1] != 0) else 1.0
+    lim0 = xlim if xlim is not None else (1.15 * np.max(np.abs(x0s_arr[:, 0])) if np.any(x0s_arr[:, 0] != 0) else 1.0)
+    lim1 = ylim if ylim is not None else (1.15 * np.max(np.abs(x0s_arr[:, 1])) if np.any(x0s_arr[:, 1] != 0) else 1.0)
     ax.set_xlim(-lim0, lim0)
     ax.set_ylim(-lim1, lim1)
     legend_handles = [
@@ -188,21 +197,29 @@ def plot_compare_local_stability(
     unit_suffix: str = "",
     dominant_mode_label: str = "ground truth (unstable)",
     other_mode_label: str = "ground truth (stable)",
+    eig_legend_loc: str = "lower left",
+    traj_xlim: float | None = None,
+    traj_ylim: float | None = None,
 ):
     """3-panel side-by-side comparison of two training configs (e.g. SIGReg
     vs. endpoint action-reconstruction) on the SAME example: panel 1 overlays
     BOTH configs' learned dominant eigenvector against the shared ground
     truth (`_draw_eigenvector_alignment_panel_dual`); panels 2-3 are each
     config's own closed-loop trajectories, side by side, so a converging vs.
-    diverging outcome is directly visible in one figure."""
+    diverging outcome is directly visible in one figure.
+
+    `traj_xlim`/`traj_ylim`: shared symmetric axis half-width override for
+    BOTH trajectory panels (see `_draw_trajectory_panel`) -- useful when the
+    auto-computed frame (from the starting points' own extent) clips an
+    early transient that swings out further than its own x0."""
     fig, axes = plt.subplots(1, 3, figsize=(19, 6))
     suffix = f" ({unit_suffix})" if unit_suffix else ""
     _draw_eigenvector_alignment_panel_dual(
         axes[0], eig_panel_a, eig_panel_b, label_a, label_b, suffix=suffix,
-        dominant_mode_label=dominant_mode_label, other_mode_label=other_mode_label,
+        dominant_mode_label=dominant_mode_label, other_mode_label=other_mode_label, legend_loc=eig_legend_loc,
     )
-    _draw_trajectory_panel(axes[1], traj_panel_a, suffix=suffix, title=label_a)
-    _draw_trajectory_panel(axes[2], traj_panel_b, suffix=suffix, title=label_b)
+    _draw_trajectory_panel(axes[1], traj_panel_a, suffix=suffix, title=label_a, xlim=traj_xlim, ylim=traj_ylim)
+    _draw_trajectory_panel(axes[2], traj_panel_b, suffix=suffix, title=label_b, xlim=traj_xlim, ylim=traj_ylim)
     fig.tight_layout()
     fig.savefig(out_path)
     plt.close(fig)

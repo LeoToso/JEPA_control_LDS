@@ -66,6 +66,13 @@ def main():
         "way to remove the straight-line-interpolation artifact.",
     )
     p.add_argument("--hide-axis-units", action="store_true", help="omit the '(deg)' / unit suffix from axis labels")
+    p.add_argument("--eig-legend-loc", type=str, default="lower left", help="matplotlib legend location for panel 1 (e.g. 'upper left')")
+    p.add_argument(
+        "--traj-xlim", type=float, default=None,
+        help="symmetric x-axis half-width for panels 2-3 (default: auto from the starting points' own extent, "
+        "which can clip a trajectory's early transient if it swings out further than its own x0)",
+    )
+    p.add_argument("--traj-ylim", type=float, default=None, help="symmetric y-axis half-width for panels 2-3 (default: auto, see --traj-xlim)")
 
     p.add_argument("--q-scale", type=float, default=1.0, help="LQR Q = q_scale * I (applied to each checkpoint's own latent system)")
     p.add_argument("--r-scale", type=float, default=1.0, help="LQR R = r_scale * I")
@@ -162,6 +169,7 @@ def main():
         eig_a, eig_b, traj_a, traj_b, out_path,
         label_a="SIG", label_b="EP-IDM", unit_suffix=unit_suffix,
         dominant_mode_label=dominant_mode_label, other_mode_label=other_mode_label,
+        eig_legend_loc=args.eig_legend_loc, traj_xlim=args.traj_xlim, traj_ylim=args.traj_ylim,
     )
     print(f"\nwrote {out_path}")
 
