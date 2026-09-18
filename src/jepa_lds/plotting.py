@@ -150,6 +150,7 @@ def _draw_trajectory_panel(
     title: str | None = None,
     xlim: float | None = None,
     ylim: float | None = None,
+    linewidth: float = 1.2,
 ):
     """Draws the closed-loop-trajectories panel (a handful of trajectories
     under the learned controller, starting from marked initial states,
@@ -166,7 +167,7 @@ def _draw_trajectory_panel(
     d0t, d1t = traj_panel["dims"]
     for i, (xs, x0) in enumerate(zip(traj_panel["trajectories"], traj_panel["x0s"])):
         color = _TRAJ_COLORS[i % len(_TRAJ_COLORS)]
-        ax.plot(xs[:, 0], xs[:, 1], color=color, linewidth=1.2, alpha=0.85, zorder=3)
+        ax.plot(xs[:, 0], xs[:, 1], color=color, linewidth=linewidth, alpha=0.85, zorder=3)
         ax.scatter([x0[0]], [x0[1]], facecolors="none", edgecolors=color, marker="o", s=90, linewidths=1.8, zorder=4)
     ax.scatter([0], [0], **_EQUILIBRIUM_STYLE)
     x0s_arr = np.array(traj_panel["x0s"])
@@ -231,6 +232,7 @@ def plot_compare_local_stability(
     eig_legend_loc: str = "lower left",
     traj_xlim: float | None = None,
     traj_ylim: float | None = None,
+    traj_linewidth: float = 1.2,
 ):
     """3-panel side-by-side comparison of two training configs (e.g. SIGReg
     vs. endpoint action-reconstruction) on the SAME example: panel 1 overlays
@@ -242,15 +244,18 @@ def plot_compare_local_stability(
     `traj_xlim`/`traj_ylim`: shared symmetric axis half-width override for
     BOTH trajectory panels (see `_draw_trajectory_panel`) -- useful when the
     auto-computed frame (from the starting points' own extent) clips an
-    early transient that swings out further than its own x0."""
+    early transient that swings out further than its own x0.
+
+    `traj_linewidth`: line width for both trajectory panels' curves
+    (default 1.2, matching `plot_local_stability_probe`'s panel 2)."""
     fig, axes = plt.subplots(1, 3, figsize=(19, 6))
     suffix = f" ({unit_suffix})" if unit_suffix else ""
     _draw_eigenvector_alignment_panel_dual(
         axes[0], eig_panel_a, eig_panel_b, label_a, label_b, suffix=suffix,
         dominant_mode_label=dominant_mode_label, other_mode_label=other_mode_label, legend_loc=eig_legend_loc,
     )
-    _draw_trajectory_panel(axes[1], traj_panel_a, suffix=suffix, title=label_a, xlim=traj_xlim, ylim=traj_ylim)
-    _draw_trajectory_panel(axes[2], traj_panel_b, suffix=suffix, title=label_b, xlim=traj_xlim, ylim=traj_ylim)
+    _draw_trajectory_panel(axes[1], traj_panel_a, suffix=suffix, title=label_a, xlim=traj_xlim, ylim=traj_ylim, linewidth=traj_linewidth)
+    _draw_trajectory_panel(axes[2], traj_panel_b, suffix=suffix, title=label_b, xlim=traj_xlim, ylim=traj_ylim, linewidth=traj_linewidth)
     fig.tight_layout()
     fig.savefig(out_path)
     plt.close(fig)

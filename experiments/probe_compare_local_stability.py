@@ -73,6 +73,7 @@ def main():
         "which can clip a trajectory's early transient if it swings out further than its own x0)",
     )
     p.add_argument("--traj-ylim", type=float, default=None, help="symmetric y-axis half-width for panels 2-3 (default: auto, see --traj-xlim)")
+    p.add_argument("--traj-linewidth", type=float, default=1.2, help="line width for panels 2-3's trajectory curves")
 
     p.add_argument("--q-scale", type=float, default=1.0, help="LQR Q = q_scale * I (applied to each checkpoint's own latent system)")
     p.add_argument("--r-scale", type=float, default=1.0, help="LQR R = r_scale * I")
@@ -170,6 +171,7 @@ def main():
         label_a="SIG", label_b="EP-IDM", unit_suffix=unit_suffix,
         dominant_mode_label=dominant_mode_label, other_mode_label=other_mode_label,
         eig_legend_loc=args.eig_legend_loc, traj_xlim=args.traj_xlim, traj_ylim=args.traj_ylim,
+        traj_linewidth=args.traj_linewidth,
     )
     print(f"\nwrote {out_path}")
 
