@@ -76,6 +76,7 @@ def _draw_eigenvector_alignment_panel_dual(
     tick_labelsize: float = 15,
     legend_fontsize: float = 15,
     legend_loc: str = "lower left",
+    show_xlabel: bool = True,
 ):
     """Like `_draw_eigenvector_alignment_panel`, but overlays TWO learned
     eigenvector arrows (e.g. from a SIGReg-trained vs. an endpoint-action-
@@ -133,7 +134,8 @@ def _draw_eigenvector_alignment_panel_dual(
     ax.set_xlim(-1.08, 1.08)
     ax.set_ylim(-1.08, 1.08)
     ax.set_aspect("equal")
-    ax.set_xlabel(_axis_label(d0, suffix), fontsize=label_fontsize)
+    if show_xlabel:
+        ax.set_xlabel(_axis_label(d0, suffix), fontsize=label_fontsize)
     ax.set_ylabel(_axis_label(d1, suffix), fontsize=label_fontsize)
     ax.legend(handles=legend_handles, fontsize=legend_fontsize, loc=legend_loc)
     ax.tick_params(labelsize=tick_labelsize)
@@ -148,9 +150,11 @@ def _draw_trajectory_panel(
     legend_fontsize: float = 15,
     legend_loc: str = "lower left",
     title: str | None = None,
+    title_fontweight: str = "normal",
     xlim: float | None = None,
     ylim: float | None = None,
     linewidth: float = 1.2,
+    show_xlabel: bool = True,
 ):
     """Draws the closed-loop-trajectories panel (a handful of trajectories
     under the learned controller, starting from marked initial states,
@@ -163,7 +167,10 @@ def _draw_trajectory_panel(
     By default the half-width is auto-computed from the starting points'
     own extent (with a 15% margin), which can clip a trajectory's early
     transient if it swings out further than its own x0 -- pass an explicit
-    value here to widen the frame instead."""
+    value here to widen the frame instead.
+
+    `show_xlabel` (default True): pass False to omit the x-axis label --
+    e.g. for a stacked multi-row grid where only the bottom row needs it."""
     d0t, d1t = traj_panel["dims"]
     for i, (xs, x0) in enumerate(zip(traj_panel["trajectories"], traj_panel["x0s"])):
         color = _TRAJ_COLORS[i % len(_TRAJ_COLORS)]
@@ -180,11 +187,12 @@ def _draw_trajectory_panel(
         Line2D([0], [0], color="black", linewidth=1.2, label="closed-loop trajectory"),
     ]
     ax.legend(handles=legend_handles, fontsize=legend_fontsize, loc=legend_loc)
-    ax.set_xlabel(_axis_label(d0t, suffix), fontsize=label_fontsize)
+    if show_xlabel:
+        ax.set_xlabel(_axis_label(d0t, suffix), fontsize=label_fontsize)
     ax.set_ylabel(_axis_label(d1t, suffix), fontsize=label_fontsize)
     ax.tick_params(labelsize=tick_labelsize)
     if title:
-        ax.set_title(title, fontsize=label_fontsize)
+        ax.set_title(title, fontsize=label_fontsize, fontweight=title_fontweight)
 
 
 def _draw_lyapunov_panel(
@@ -256,6 +264,58 @@ def plot_compare_local_stability(
     )
     _draw_trajectory_panel(axes[1], traj_panel_a, suffix=suffix, title=label_a, xlim=traj_xlim, ylim=traj_ylim, linewidth=traj_linewidth)
     _draw_trajectory_panel(axes[2], traj_panel_b, suffix=suffix, title=label_b, xlim=traj_xlim, ylim=traj_ylim, linewidth=traj_linewidth)
+    fig.tight_layout()
+    fig.savefig(out_path)
+    plt.close(fig)
+    return fig
+
+
+def plot_compare_local_stability_grid(
+    rows: list[dict],
+    out_path: str,
+):
+    """Stacks multiple `plot_compare_local_stability`-style 3-panel rows
+    (e.g. one per example) into a single N-row x 3-column figure, sharing
+    axes-cleanup conventions a single row doesn't need:
+
+      - panel 2/3 titles (`label_a`/`label_b`, bold) are shown ONLY on the
+        first row -- every row uses the same two config names, so repeating
+        the title on every row would be redundant.
+      - x-axis labels are shown ONLY on the last row, since a stacked grid
+        reads top-to-bottom with the bottom row's x-axis implicitly shared.
+
+    `rows`: a list of dicts, each with the same keys `plot_compare_local_stability`
+    takes as arguments (`eig_panel_a`, `eig_panel_b`, `traj_panel_a`,
+    `traj_panel_b`, plus optionally `label_a`, `label_b`, `unit_suffix`,
+    `dominant_mode_label`, `other_mode_label`, `eig_legend_loc`, `traj_xlim`,
+    `traj_ylim`, `traj_linewidth`) -- one dict per row, top to bottom."""
+    n_rows = len(rows)
+    if n_rows == 0:
+        raise ValueError("rows must be non-empty")
+    fig, axes = plt.subplots(n_rows, 3, figsize=(19, 6 * n_rows), squeeze=False)
+    for i, row in enumerate(rows):
+        is_first, is_last = i == 0, i == n_rows - 1
+        label_a = row.get("label_a", "SIG")
+        label_b = row.get("label_b", "EP-IDM")
+        unit_suffix = row.get("unit_suffix", "")
+        suffix = f" ({unit_suffix})" if unit_suffix else ""
+        _draw_eigenvector_alignment_panel_dual(
+            axes[i][0], row["eig_panel_a"], row["eig_panel_b"], label_a, label_b, suffix=suffix,
+            dominant_mode_label=row.get("dominant_mode_label", "ground truth (unstable)"),
+            other_mode_label=row.get("other_mode_label", "ground truth (stable)"),
+            legend_loc=row.get("eig_legend_loc", "lower left"),
+            show_xlabel=is_last,
+        )
+        _draw_trajectory_panel(
+            axes[i][1], row["traj_panel_a"], suffix=suffix, title=label_a if is_first else None,
+            title_fontweight="bold", xlim=row.get("traj_xlim"), ylim=row.get("traj_ylim"),
+            linewidth=row.get("traj_linewidth", 1.2), show_xlabel=is_last,
+        )
+        _draw_trajectory_panel(
+            axes[i][2], row["traj_panel_b"], suffix=suffix, title=label_b if is_first else None,
+            title_fontweight="bold", xlim=row.get("traj_xlim"), ylim=row.get("traj_ylim"),
+            linewidth=row.get("traj_linewidth", 1.2), show_xlabel=is_last,
+        )
     fig.tight_layout()
     fig.savefig(out_path)
     plt.close(fig)
