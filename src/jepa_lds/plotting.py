@@ -274,12 +274,14 @@ def plot_compare_local_stability(
         label_fontsize=label_fontsize, tick_labelsize=tick_labelsize, legend_fontsize=legend_fontsize,
     )
     _draw_trajectory_panel(
-        axes[1], traj_panel_a, suffix=suffix, title=label_a, title_fontsize=title_fontsize, xlim=traj_xlim, ylim=traj_ylim,
-        linewidth=traj_linewidth, label_fontsize=label_fontsize, tick_labelsize=tick_labelsize, legend_fontsize=legend_fontsize,
+        axes[1], traj_panel_a, suffix=suffix, title=label_a, title_fontweight="bold", title_fontsize=title_fontsize,
+        xlim=traj_xlim, ylim=traj_ylim, linewidth=traj_linewidth,
+        label_fontsize=label_fontsize, tick_labelsize=tick_labelsize, legend_fontsize=legend_fontsize,
     )
     _draw_trajectory_panel(
-        axes[2], traj_panel_b, suffix=suffix, title=label_b, title_fontsize=title_fontsize, xlim=traj_xlim, ylim=traj_ylim,
-        linewidth=traj_linewidth, label_fontsize=label_fontsize, tick_labelsize=tick_labelsize, legend_fontsize=legend_fontsize,
+        axes[2], traj_panel_b, suffix=suffix, title=label_b, title_fontweight="bold", title_fontsize=title_fontsize,
+        xlim=traj_xlim, ylim=traj_ylim, linewidth=traj_linewidth,
+        label_fontsize=label_fontsize, tick_labelsize=tick_labelsize, legend_fontsize=legend_fontsize,
     )
     fig.tight_layout()
     fig.savefig(out_path)
