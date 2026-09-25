@@ -242,6 +242,10 @@ def plot_compare_local_stability(
     traj_xlim: float | None = None,
     traj_ylim: float | None = None,
     traj_linewidth: float = 1.2,
+    label_fontsize: float = 20,
+    tick_labelsize: float = 15,
+    legend_fontsize: float = 15,
+    title_fontsize: float | None = None,
 ):
     """3-panel side-by-side comparison of two training configs (e.g. SIGReg
     vs. endpoint action-reconstruction) on the SAME example: panel 1 overlays
@@ -256,15 +260,27 @@ def plot_compare_local_stability(
     early transient that swings out further than its own x0.
 
     `traj_linewidth`: line width for both trajectory panels' curves
-    (default 1.2, matching `plot_local_stability_probe`'s panel 2)."""
+    (default 1.2, matching `plot_local_stability_probe`'s panel 2).
+
+    `label_fontsize`/`tick_labelsize`/`legend_fontsize`: shared across every
+    panel (axis labels, tick numbers, legend text respectively).
+    `title_fontsize` (default None): panel 2-3's "SIG"/"EP-IDM" title --
+    defaults to `label_fontsize` when not given."""
     fig, axes = plt.subplots(1, 3, figsize=(19, 6))
     suffix = f" ({unit_suffix})" if unit_suffix else ""
     _draw_eigenvector_alignment_panel_dual(
         axes[0], eig_panel_a, eig_panel_b, label_a, label_b, suffix=suffix,
         dominant_mode_label=dominant_mode_label, other_mode_label=other_mode_label, legend_loc=eig_legend_loc,
+        label_fontsize=label_fontsize, tick_labelsize=tick_labelsize, legend_fontsize=legend_fontsize,
     )
-    _draw_trajectory_panel(axes[1], traj_panel_a, suffix=suffix, title=label_a, xlim=traj_xlim, ylim=traj_ylim, linewidth=traj_linewidth)
-    _draw_trajectory_panel(axes[2], traj_panel_b, suffix=suffix, title=label_b, xlim=traj_xlim, ylim=traj_ylim, linewidth=traj_linewidth)
+    _draw_trajectory_panel(
+        axes[1], traj_panel_a, suffix=suffix, title=label_a, title_fontsize=title_fontsize, xlim=traj_xlim, ylim=traj_ylim,
+        linewidth=traj_linewidth, label_fontsize=label_fontsize, tick_labelsize=tick_labelsize, legend_fontsize=legend_fontsize,
+    )
+    _draw_trajectory_panel(
+        axes[2], traj_panel_b, suffix=suffix, title=label_b, title_fontsize=title_fontsize, xlim=traj_xlim, ylim=traj_ylim,
+        linewidth=traj_linewidth, label_fontsize=label_fontsize, tick_labelsize=tick_labelsize, legend_fontsize=legend_fontsize,
+    )
     fig.tight_layout()
     fig.savefig(out_path)
     plt.close(fig)
