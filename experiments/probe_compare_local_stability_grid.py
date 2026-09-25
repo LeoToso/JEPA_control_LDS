@@ -136,6 +136,14 @@ def main():
     p.add_argument("--eig-legend-loc", type=str, default="lower left", help="matplotlib legend location for panel 1, both rows")
     p.add_argument("--hide-axis-units", action="store_true", help="omit the '(deg)' / unit suffix from axis labels, both rows")
 
+    p.add_argument("--label-fontsize", type=float, default=20, help="axis-label font size, every panel")
+    p.add_argument("--tick-labelsize", type=float, default=15, help="axis tick-number font size, every panel")
+    p.add_argument("--legend-fontsize", type=float, default=15, help="legend text font size, every panel")
+    p.add_argument(
+        "--title-fontsize", type=float, default=None,
+        help="panel 2-3's bold 'SIG'/'EP-IDM' title font size on the top row (default: same as --label-fontsize)",
+    )
+
     p.add_argument("--q-scale", type=float, default=1.0, help="LQR Q = q_scale * I (applied to each checkpoint's own latent system)")
     p.add_argument("--r-scale", type=float, default=1.0, help="LQR R = r_scale * I")
     p.add_argument("--threads", type=int, default=4)
@@ -147,7 +155,11 @@ def main():
     row3 = _build_row(args.ex3_sig_checkpoint, args.ex3_epidm_checkpoint, args)
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-    plot_compare_local_stability_grid([row1, row3], args.out)
+    plot_compare_local_stability_grid(
+        [row1, row3], args.out,
+        label_fontsize=args.label_fontsize, tick_labelsize=args.tick_labelsize,
+        legend_fontsize=args.legend_fontsize, title_fontsize=args.title_fontsize,
+    )
     print(f"\nwrote {args.out}")
 
 

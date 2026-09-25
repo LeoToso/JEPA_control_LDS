@@ -151,6 +151,7 @@ def _draw_trajectory_panel(
     legend_loc: str = "lower left",
     title: str | None = None,
     title_fontweight: str = "normal",
+    title_fontsize: float | None = None,
     xlim: float | None = None,
     ylim: float | None = None,
     linewidth: float = 1.2,
@@ -192,7 +193,7 @@ def _draw_trajectory_panel(
     ax.set_ylabel(_axis_label(d1t, suffix), fontsize=label_fontsize)
     ax.tick_params(labelsize=tick_labelsize)
     if title:
-        ax.set_title(title, fontsize=label_fontsize, fontweight=title_fontweight)
+        ax.set_title(title, fontsize=title_fontsize if title_fontsize is not None else label_fontsize, fontweight=title_fontweight)
 
 
 def _draw_lyapunov_panel(
@@ -273,6 +274,10 @@ def plot_compare_local_stability(
 def plot_compare_local_stability_grid(
     rows: list[dict],
     out_path: str,
+    label_fontsize: float = 20,
+    tick_labelsize: float = 15,
+    legend_fontsize: float = 15,
+    title_fontsize: float | None = None,
 ):
     """Stacks multiple `plot_compare_local_stability`-style 3-panel rows
     (e.g. one per example) into a single N-row x 3-column figure, sharing
@@ -288,10 +293,16 @@ def plot_compare_local_stability_grid(
     takes as arguments (`eig_panel_a`, `eig_panel_b`, `traj_panel_a`,
     `traj_panel_b`, plus optionally `label_a`, `label_b`, `unit_suffix`,
     `dominant_mode_label`, `other_mode_label`, `eig_legend_loc`, `traj_xlim`,
-    `traj_ylim`, `traj_linewidth`) -- one dict per row, top to bottom."""
+    `traj_ylim`, `traj_linewidth`) -- one dict per row, top to bottom.
+
+    `label_fontsize`/`tick_labelsize`/`legend_fontsize`: shared across every
+    panel in every row (axis labels, tick numbers, legend text respectively).
+    `title_fontsize` (default None): panel 2/3's bold "SIG"/"EP-IDM" title on
+    the first row -- defaults to `label_fontsize` when not given."""
     n_rows = len(rows)
     if n_rows == 0:
         raise ValueError("rows must be non-empty")
+    title_fontsize = label_fontsize if title_fontsize is None else title_fontsize
     fig, axes = plt.subplots(n_rows, 3, figsize=(19, 6 * n_rows), squeeze=False)
     for i, row in enumerate(rows):
         is_first, is_last = i == 0, i == n_rows - 1
@@ -304,17 +315,20 @@ def plot_compare_local_stability_grid(
             dominant_mode_label=row.get("dominant_mode_label", "ground truth (unstable)"),
             other_mode_label=row.get("other_mode_label", "ground truth (stable)"),
             legend_loc=row.get("eig_legend_loc", "lower left"),
-            show_xlabel=is_last,
+            show_xlabel=is_last, label_fontsize=label_fontsize, tick_labelsize=tick_labelsize,
+            legend_fontsize=legend_fontsize,
         )
         _draw_trajectory_panel(
             axes[i][1], row["traj_panel_a"], suffix=suffix, title=label_a if is_first else None,
-            title_fontweight="bold", xlim=row.get("traj_xlim"), ylim=row.get("traj_ylim"),
+            title_fontweight="bold", title_fontsize=title_fontsize, xlim=row.get("traj_xlim"), ylim=row.get("traj_ylim"),
             linewidth=row.get("traj_linewidth", 1.2), show_xlabel=is_last,
+            label_fontsize=label_fontsize, tick_labelsize=tick_labelsize, legend_fontsize=legend_fontsize,
         )
         _draw_trajectory_panel(
             axes[i][2], row["traj_panel_b"], suffix=suffix, title=label_b if is_first else None,
-            title_fontweight="bold", xlim=row.get("traj_xlim"), ylim=row.get("traj_ylim"),
+            title_fontweight="bold", title_fontsize=title_fontsize, xlim=row.get("traj_xlim"), ylim=row.get("traj_ylim"),
             linewidth=row.get("traj_linewidth", 1.2), show_xlabel=is_last,
+            label_fontsize=label_fontsize, tick_labelsize=tick_labelsize, legend_fontsize=legend_fontsize,
         )
     fig.tight_layout()
     fig.savefig(out_path)
