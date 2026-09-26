@@ -296,6 +296,7 @@ def plot_compare_local_stability_grid(
     tick_labelsize: float = 15,
     legend_fontsize: float = 15,
     title_fontsize: float | None = None,
+    shared_x_axis: bool = False,
 ):
     """Stacks multiple `plot_compare_local_stability`-style 3-panel rows
     (e.g. one per example) into a single N-row x 3-column figure, sharing
@@ -304,8 +305,13 @@ def plot_compare_local_stability_grid(
       - panel 2/3 titles (`label_a`/`label_b`, bold) are shown ONLY on the
         first row -- every row uses the same two config names, so repeating
         the title on every row would be redundant.
-      - x-axis labels are shown ONLY on the last row, since a stacked grid
-        reads top-to-bottom with the bottom row's x-axis implicitly shared.
+      - x-axis labels are shown on EVERY row by default, since different
+        rows (e.g. different examples) can probe different state dims and
+        so have genuinely different x-axis quantities (e.g. Example 1's
+        $x_1$ vs. Example 3's $x_3$) -- hiding all but the last row's would
+        silently lose that information. Pass `shared_x_axis=True` to hide
+        every row but the last instead, for the case where every row
+        really does share the same dims (so the label would just repeat).
 
     `rows`: a list of dicts, each with the same keys `plot_compare_local_stability`
     takes as arguments (`eig_panel_a`, `eig_panel_b`, `traj_panel_a`,
@@ -324,6 +330,7 @@ def plot_compare_local_stability_grid(
     fig, axes = plt.subplots(n_rows, 3, figsize=(19, 6 * n_rows), squeeze=False)
     for i, row in enumerate(rows):
         is_first, is_last = i == 0, i == n_rows - 1
+        show_xlabel = is_last if shared_x_axis else True
         label_a = row.get("label_a", "SIG")
         label_b = row.get("label_b", "EP-IDM")
         unit_suffix = row.get("unit_suffix", "")
@@ -333,19 +340,19 @@ def plot_compare_local_stability_grid(
             dominant_mode_label=row.get("dominant_mode_label", "ground truth (unstable)"),
             other_mode_label=row.get("other_mode_label", "ground truth (stable)"),
             legend_loc=row.get("eig_legend_loc", "lower left"),
-            show_xlabel=is_last, label_fontsize=label_fontsize, tick_labelsize=tick_labelsize,
+            show_xlabel=show_xlabel, label_fontsize=label_fontsize, tick_labelsize=tick_labelsize,
             legend_fontsize=legend_fontsize,
         )
         _draw_trajectory_panel(
             axes[i][1], row["traj_panel_a"], suffix=suffix, title=label_a if is_first else None,
             title_fontweight="bold", title_fontsize=title_fontsize, xlim=row.get("traj_xlim"), ylim=row.get("traj_ylim"),
-            linewidth=row.get("traj_linewidth", 1.2), show_xlabel=is_last,
+            linewidth=row.get("traj_linewidth", 1.2), show_xlabel=show_xlabel,
             label_fontsize=label_fontsize, tick_labelsize=tick_labelsize, legend_fontsize=legend_fontsize,
         )
         _draw_trajectory_panel(
             axes[i][2], row["traj_panel_b"], suffix=suffix, title=label_b if is_first else None,
             title_fontweight="bold", title_fontsize=title_fontsize, xlim=row.get("traj_xlim"), ylim=row.get("traj_ylim"),
-            linewidth=row.get("traj_linewidth", 1.2), show_xlabel=is_last,
+            linewidth=row.get("traj_linewidth", 1.2), show_xlabel=show_xlabel,
             label_fontsize=label_fontsize, tick_labelsize=tick_labelsize, legend_fontsize=legend_fontsize,
         )
     fig.tight_layout()

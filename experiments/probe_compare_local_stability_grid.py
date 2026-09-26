@@ -143,6 +143,13 @@ def main():
         "--title-fontsize", type=float, default=None,
         help="panel 2-3's bold 'SIG'/'EP-IDM' title font size on the top row (default: same as --label-fontsize)",
     )
+    p.add_argument(
+        "--shared-x-axis", action="store_true",
+        help="hide the x-axis label on every row but the last, for the case where every row really does share "
+        "the same dims (default: show it on every row, since different examples usually probe different state "
+        "dims -- e.g. Example 1's x_1 vs. Example 3's x_3 -- so hiding all but the last row's would silently "
+        "lose that information)",
+    )
 
     p.add_argument("--q-scale", type=float, default=1.0, help="LQR Q = q_scale * I (applied to each checkpoint's own latent system)")
     p.add_argument("--r-scale", type=float, default=1.0, help="LQR R = r_scale * I")
@@ -159,6 +166,7 @@ def main():
         [row1, row3], args.out,
         label_fontsize=args.label_fontsize, tick_labelsize=args.tick_labelsize,
         legend_fontsize=args.legend_fontsize, title_fontsize=args.title_fontsize,
+        shared_x_axis=args.shared_x_axis,
     )
     print(f"\nwrote {args.out}")
 
