@@ -13,18 +13,25 @@ whether an explicit rank regularizer (RankReg) on the predictor's bottleneck
 provably prevents that, the way SIGReg (a pure marginal-distribution
 penalty) cannot.
 
-IMPORTANT: RankReg must constrain the *composed* map from the TRUE STATE,
-through the encoder E, through the past window, to the bottleneck state
-estimate -- not G_1's own matrix rank in isolation. G_1 only ever sees
-z's that E already produced; if E itself has zero sensitivity to a mode
-(its row is exactly orthogonal to that mode's influence on y), no amount of
-downstream processing by a full-rank G_1 can recover information that was
-never in z to begin with. `rank_reg_loss` below penalizes the smallest
-eigenvalue of Q^T Q, where Q = G_1 @ D_L(E) @ Obs_L and Obs_L = [C; CA;
-...; C A^{L-1}] is the TRUE system's own (fixed) finite-window observability
-matrix -- i.e. it penalizes any TRUE state direction that would map to (near)
-zero change in the bottleneck state estimate, directly closing the gap a
-G_1-only penalty leaves open.
+IMPORTANT: RankReg must be computable from ONLY the learnable matrices
+(G_1, M, E) and empirical data statistics -- NEVER the true system matrices
+(A, C), which JEPA training has no access to. A first version of this
+penalty used the TRUE system's own observability matrix directly, which is
+not a legitimate regularizer; this version instead uses the EMPIRICAL
+covariance of the raw past window, estimated from the training batch --
+exactly the same move the SIGReg surrogate in the notes already makes
+(L_SIG(E) = ||E Sigma_y E^T - I||^2 uses the DATA covariance Sigma_y, never
+A or C). Constraining G_1's own abstract matrix rank in isolation also
+turned out to be insufficient on its own: G_1 can be abstractly full-rank
+while the REAL data it receives only explores a lower-dimensional slice of
+its domain (exactly what happens when E has discarded a mode) -- so the
+rank condition has to be checked against the actual data distribution, not
+the matrix alone. `rank_reg_loss` below penalizes the smallest eigenvalue
+of Q_cov = G_1 @ D_L(E) @ Sigma_{y,window} @ D_L(E)^T @ G_1^T (the
+COVARIANCE of the bottleneck state estimate under the real data
+distribution) falling below gamma^2 -- if E has really discarded a mode,
+the real data simply carries no variance along that direction by the time
+it reaches G_1, regardless of G_1's own abstract rank.
 
 See experiments/example4_filtering/ for the full derivation and the
 synthetic construction used to trigger the collapse.
@@ -96,60 +103,63 @@ def hankel_prediction_loss(predictor: HankelPredictor, encoder, z_past: torch.Te
     return (err ** 2).sum(dim=-1).mean()
 
 
-def past_window_observability_matrix(system: LTISystem, obs_model, past_window: int) -> np.ndarray:
-    """Obs_L = [C; C A; ...; C A^{L-1}] (shape (L*p, n)), using the TRUE
-    system's (A, C) -- C padded with zero columns for the distractor
-    channels, which carry no x-dependent signal. This is a FIXED matrix
-    (depends only on the ground-truth system, never on anything learned):
-    it maps the state at the START of a length-`past_window` window to the
-    stacked RAW observations across that window, `[y_{t-L};...;y_{t-1}] =
-    Obs_L @ x_{t-L}` (noiseless)."""
-    n = system.n
-    C_full = np.zeros((obs_model.p, n))
-    C_full[: obs_model.signal_dim, :] = obs_model.C
-    mats = [C_full]
-    Ak = np.eye(n)
-    for _ in range(1, past_window):
-        Ak = system.A @ Ak
-        mats.append(C_full @ Ak)
-    return np.vstack(mats)
+def past_window_data_covariance(train_batch: EpisodeBatch, past_window: int) -> np.ndarray:
+    """Sigma_{y,window} = Cov([y_{t-L};...;y_{t-1}]) (shape (L*p, L*p)),
+    estimated EMPIRICALLY from `train_batch` -- no system matrices involved
+    at all, exactly the same kind of quantity (the data's own covariance)
+    the SIGReg surrogate L_SIG(E) = ||E Sigma_y E^T - I||^2 already uses.
+    This is a FIXED matrix computed once before training; it does not
+    depend on anything learned."""
+    n_ep, Tp1, p = train_batch.y.shape
+    windows = []
+    for e in range(n_ep):
+        for t in range(past_window, Tp1 + 1):
+            windows.append(train_batch.y[e, t - past_window : t].reshape(-1))
+    W = np.stack(windows)  # (N, L*p)
+    W = W - W.mean(axis=0, keepdims=True)
+    return (W.T @ W) / W.shape[0]
 
 
-def embed_observability_matrix(encoder, obs_L: torch.Tensor, past_window: int, obs_dim: int) -> torch.Tensor:
-    """Applies the CURRENT (learnable, differentiable) encoder independently
-    to each (p, n) block of `obs_L` (shape (L*p, n)) -- i.e. computes
-    D_L(E) @ Obs_L without ever materializing the block-diagonal D_L(E) --
-    returning the (L*d, n) map from the true state at the window start to
-    the stacked EMBEDDED past window."""
-    blocks = obs_L.reshape(past_window, obs_dim, -1)  # (L, p, n)
-    embedded = torch.einsum("dp,Lpn->Ldn", encoder.linear.weight, blocks)  # (L, d, n)
-    return embedded.reshape(past_window * encoder.linear.weight.shape[0], -1)  # (L*d, n)
+def embed_data_covariance(encoder, sigma_y_window: torch.Tensor, past_window: int, obs_dim: int) -> torch.Tensor:
+    """Applies the CURRENT (learnable, differentiable) encoder to BOTH sides
+    of `sigma_y_window` (shape (L*p, L*p)) independently per L-block -- i.e.
+    computes D_L(E) @ Sigma_{y,window} @ D_L(E)^T without ever materializing
+    the block-diagonal D_L(E) -- returning the (L*d, L*d) covariance of the
+    stacked EMBEDDED past window under the real data distribution."""
+    d = encoder.linear.weight.shape[0]
+    blocks = sigma_y_window.reshape(past_window, obs_dim, past_window, obs_dim)  # (L, p, L, p)
+    E = encoder.linear.weight  # (d, p)
+    embedded = torch.einsum("ap,LpMq,bq->LaMb", E, blocks, E)  # (L, d, L, d)
+    return embedded.reshape(past_window * d, past_window * d)
 
 
-def rank_reg_loss(predictor: HankelPredictor, encoder, obs_L: torch.Tensor, gamma: float) -> torch.Tensor:
-    """Soft version of a rank-floor constraint on the COMPOSED map from the
-    TRUE STATE to the bottleneck state estimate, Q = G_1 @ D_L(E) @ Obs_L
-    (shape (bottleneck_dim, n)): a hinge penalty on each eigenvalue of
-    Q^T Q that falls below gamma^2. Zero exactly when every true-state
-    direction already produces a state-estimate change of norm >= gamma;
-    otherwise it directly fights an encoder/predictor pair that would
-    cheapen the prediction loss by making SOME true-state direction
-    (i.e. an observable mode) invisible to the state estimate -- the one
+def rank_reg_loss(predictor: HankelPredictor, encoder, sigma_y_window: torch.Tensor, gamma: float) -> torch.Tensor:
+    """Soft version of a rank-floor constraint on the COVARIANCE of the
+    bottleneck state estimate under the REAL DATA distribution,
+    Q_cov = G_1 @ D_L(E) @ Sigma_{y,window} @ D_L(E)^T @ G_1^T (shape
+    (bottleneck_dim, bottleneck_dim)): a hinge penalty on each eigenvalue of
+    Q_cov that falls below gamma^2. Zero exactly when every direction of the
+    state estimate already has variance >= gamma^2 under the data; otherwise
+    it directly fights an encoder/predictor pair that would cheapen the
+    prediction loss by making SOME state-estimate direction carry (near)
+    zero variance -- i.e. by discarding an observable mode -- the one
     failure mode SIGReg (a pure marginal-distribution penalty on z, with no
-    reference to the true state at all) has no mechanism to prevent.
+    reference to multi-step structure at all) has no mechanism to prevent.
 
-    Constraining G_1's own rank alone is NOT sufficient: G_1 only ever sees
-    z's the encoder already produced, so if E itself has zero sensitivity to
-    a mode, no amount of downstream full-rank G_1 processing can recover
-    it -- hence this penalizes the FULL composed map through E, not G_1 in
-    isolation. Requires `predictor.bottleneck_dim >= system.n` (`obs_L`'s
-    column count) for Q to possibly have full rank at all."""
+    Computed from ONLY the learnable matrices (G_1, E) and the empirical
+    data covariance `sigma_y_window` -- never the true system matrices.
+    Constraining G_1's own abstract matrix rank alone is NOT sufficient:
+    G_1 can be full rank as a matrix while the REAL data it receives only
+    explores a lower-dimensional slice of its domain (exactly what happens
+    when E has discarded a mode) -- hence this checks the rank against the
+    actual data distribution, via `sigma_y_window`, rather than against G_1
+    in isolation. Requires `predictor.bottleneck_dim >= system.n` for
+    Q_cov to possibly have full rank at all."""
     if gamma <= 0:
         return torch.tensor(0.0)
-    embedded_obs_L = embed_observability_matrix(encoder, obs_L, predictor.past_window, predictor.obs_dim)
-    Q = predictor.G1.weight @ embedded_obs_L  # (bottleneck_dim, n)
-    gram = Q.T @ Q  # (n, n), symmetric PSD
-    eigvals = torch.linalg.eigvalsh(gram)
+    embedded_cov = embed_data_covariance(encoder, sigma_y_window, predictor.past_window, predictor.obs_dim)
+    Q_cov = predictor.G1.weight @ embedded_cov @ predictor.G1.weight.T  # (bottleneck_dim, bottleneck_dim)
+    eigvals = torch.linalg.eigvalsh(Q_cov)
     return torch.relu(gamma ** 2 - eigvals).sum()
 
 
@@ -182,7 +192,12 @@ def train_filtering(
 ):
     """Naive joint Adam SGD over (encoder, HankelPredictor) -- no closed-form
     solves, nothing frozen, consistent with `train.train_jepa_naive`'s
-    convention elsewhere in this codebase."""
+    convention elsewhere in this codebase. `system` is accepted (matching
+    every other training entry point's signature in this codebase) but
+    unused: every loss here is computable from `obs_model`/`train_batch`
+    (i.e. from data) and the learnable matrices alone, deliberately never
+    touching the ground-truth system matrices."""
+    del system
     torch.manual_seed(cfg.seed)
     encoder = LinearEncoder(obs_model.p, cfg.latent_dim, bias=False)
     predictor = HankelPredictor(cfg.latent_dim, obs_model.p, cfg.past_window, cfg.future_window, cfg.bottleneck_dim)
@@ -190,7 +205,7 @@ def train_filtering(
     train_ds = HankelWindowDataset(train_batch, cfg.past_window, cfg.future_window)
     loader = DataLoader(train_ds, batch_size=cfg.batch_size, shuffle=True)
 
-    obs_L = torch.tensor(past_window_observability_matrix(system, obs_model, cfg.past_window), dtype=torch.float32)
+    sigma_y_window = torch.tensor(past_window_data_covariance(train_batch, cfg.past_window), dtype=torch.float32)
 
     params = list(encoder.parameters()) + list(predictor.parameters())
     opt = torch.optim.Adam(params, lr=cfg.lr, weight_decay=cfg.weight_decay)
@@ -207,7 +222,7 @@ def train_filtering(
 
             loss_rank = torch.tensor(0.0)
             if cfg.lambda_rank > 0:
-                loss_rank = rank_reg_loss(predictor, encoder, obs_L, cfg.gamma)
+                loss_rank = rank_reg_loss(predictor, encoder, sigma_y_window, cfg.gamma)
                 loss = loss + cfg.lambda_rank * loss_rank
 
             loss_sigreg = torch.tensor(0.0)
