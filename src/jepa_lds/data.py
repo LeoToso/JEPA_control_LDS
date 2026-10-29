@@ -299,3 +299,33 @@ class WindowDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.y[idx], self.a[idx]
+
+
+class HankelWindowDataset(Dataset):
+    """Sliding windows split into a PAST block of length `past_window` and an
+    immediately-following FUTURE block of length `future_window` (raw
+    observations, no actions) -- used by the Hankel/subspace-identification-
+    style filtering training scheme (`jepa_lds.filtering`). This is a pure
+    observability/filtering setting, not a control one, so (unlike
+    `WindowDataset`) actions are never included."""
+
+    def __init__(self, batch: EpisodeBatch, past_window: int, future_window: int):
+        self.past_window = past_window
+        self.future_window = future_window
+        total = past_window + future_window
+        n_ep, Tp1, _p = batch.y.shape
+        if Tp1 < total:
+            raise ValueError(f"episode length {Tp1} shorter than past_window+future_window={total}")
+        past_ys, future_ys = [], []
+        for e in range(n_ep):
+            for t in range(0, Tp1 - total + 1):
+                past_ys.append(batch.y[e, t : t + past_window])
+                future_ys.append(batch.y[e, t + past_window : t + total])
+        self.y_past = torch.tensor(np.stack(past_ys), dtype=torch.float32)
+        self.y_future = torch.tensor(np.stack(future_ys), dtype=torch.float32)
+
+    def __len__(self):
+        return self.y_past.shape[0]
+
+    def __getitem__(self, idx):
+        return self.y_past[idx], self.y_future[idx]

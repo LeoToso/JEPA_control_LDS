@@ -23,6 +23,31 @@ def test_double_mode_fully_controllable():
     assert s.pbh_uncontrollable_modes() == []
 
 
+def test_double_mode_observable_through_full_rank_C():
+    """A full-row-rank 2D output map should see both modes -- the dual of
+    `test_double_mode_fully_controllable`."""
+    s = make_double_mode_system(unstable_eig=0.85, stable_eig=0.6)
+    rng = np.random.default_rng(0)
+    C = rng.standard_normal((3, s.n))  # generic full-column-rank-ish 3x2 output map
+    assert s.is_observable(C)
+    assert s.pbh_unobservable_modes(C) == []
+
+
+def test_double_mode_rank_deficient_C_hides_one_mode():
+    """A C that only sees ONE modal coordinate should correctly be flagged as
+    making the OTHER mode unobservable (regression check for the PBH dual)."""
+    s = make_double_mode_system(unstable_eig=0.85, stable_eig=0.6)
+    _w, _V, Vinv = s.modal_decomposition()
+    idx_dominant = s.unstable_mode_index()
+    idx_other = 1 - idx_dominant
+    C_bad = Vinv[[idx_dominant]].real  # only sees the dominant mode's modal coordinate
+    assert not s.is_observable(C_bad)
+    unobservable = s.pbh_unobservable_modes(C_bad)
+    assert len(unobservable) == 1
+    w, _, _ = s.modal_decomposition()
+    assert np.isclose(unobservable[0], w[idx_other])
+
+
 def test_dlqr_stabilizes_ground_truth():
     for maker in [make_double_mode_system, make_linearized_cartpole_system]:
         s = maker()

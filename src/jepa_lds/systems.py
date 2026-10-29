@@ -94,6 +94,34 @@ class LTISystem:
         be controllable."""
         return all(abs(lam) < 1.0 - 1e-9 for lam in self.pbh_uncontrollable_modes(tol))
 
+    # ---- observability -----------------------------------------------------
+    # Dual of controllability, parametrized by an external output/encoding map
+    # C (q x n) since LTISystem has no C of its own -- the "camera" lives in
+    # ObservationModel, and the learned-encoder analogue is whatever map you
+    # pass in (e.g. `encoder_state_to_latent_map`'s output, to check whether
+    # the LEARNED representation still sees every mode the true sensor does).
+    def observability_matrix(self, C: np.ndarray) -> np.ndarray:
+        mats = [C]
+        Ak = np.eye(self.n)
+        for _ in range(1, self.n):
+            Ak = Ak @ self.A
+            mats.append(C @ Ak)
+        return np.vstack(mats)
+
+    def is_observable(self, C: np.ndarray, tol: float = 1e-8) -> bool:
+        O = self.observability_matrix(C)
+        return np.linalg.matrix_rank(O, tol=tol) == self.n
+
+    def pbh_unobservable_modes(self, C: np.ndarray, tol: float = 1e-6) -> list[complex]:
+        """Popov-Belevitch-Hautus test: eigenvalues lambda of A for which
+        rank([[A - lambda I]; [C]]) < n, i.e. modes invisible in the output."""
+        bad = []
+        for lam in self.eigvals():
+            M = np.vstack([self.A - lam * np.eye(self.n), C])
+            if np.linalg.matrix_rank(M, tol=tol) < self.n:
+                bad.append(lam)
+        return bad
+
     # ---- control synthesis -------------------------------------------------
     def dlqr(self, Q: np.ndarray | None = None, R: np.ndarray | None = None):
         """Solve the discrete algebraic Riccati equation; return gain K with
