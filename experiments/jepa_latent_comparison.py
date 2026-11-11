@@ -119,7 +119,7 @@ def eval_cols(encoder, G1_matrix):
     return np.linalg.norm(M_eff_modal[:, idx_u]), np.linalg.norm(M_eff_modal[:, idx_s])
 
 
-def train_standard_jepa(seed, epochs=EPOCHS):
+def train_standard_jepa(seed, epochs=EPOCHS, log_every=500, log_prefix=""):
     """L = L_pred + 25*L_SIGReg. No RankReg, no weight-sharing, no M."""
     torch.manual_seed(seed)
     encoder = LinearEncoder(OBS_MODEL.p, LATENT_DIM, bias=False)
@@ -136,12 +136,17 @@ def train_standard_jepa(seed, epochs=EPOCHS):
         loss = loss_pred + 25.0 * loss_sig
         loss.backward()
         opt.step()
+        if log_every and (epoch % log_every == 0 or epoch == epochs - 1):
+            with torch.no_grad():
+                cu, cs = eval_cols(encoder, predictor.g1_matrix())
+            print(f"{log_prefix}epoch={epoch}  loss_pred={loss_pred.item():.5f}  loss_sig={loss_sig.item():.5f}  "
+                  f"col(at-risk)={cu:.4f}  col(safe)={cs:.4f}  ratio={cu/cs:.2f}", flush=True)
         if epoch == epochs - 1:
             last_total = loss.item()
     return encoder, predictor.g1_matrix(), last_total
 
 
-def train_jepa_rankreg(seed, lambda_ws=1.0, gamma=0.5, lambda_rank=25.0, epochs=EPOCHS):
+def train_jepa_rankreg(seed, lambda_ws=1.0, gamma=0.5, lambda_rank=25.0, epochs=EPOCHS, log_every=500, log_prefix=""):
     """L = L_pred + 25*L_SIGReg + lambda_rank*RankReg(G1,G2) + lambda_ws*L_ws."""
     torch.manual_seed(seed)
     encoder = LinearEncoder(OBS_MODEL.p, LATENT_DIM, bias=False)
@@ -162,6 +167,12 @@ def train_jepa_rankreg(seed, lambda_ws=1.0, gamma=0.5, lambda_rank=25.0, epochs=
         loss = loss_pred + 25.0 * loss_sig + lambda_rank * loss_rank + lambda_ws * loss_ws
         loss.backward()
         opt.step()
+        if log_every and (epoch % log_every == 0 or epoch == epochs - 1):
+            with torch.no_grad():
+                cu, cs = eval_cols(encoder, predictor.g1_matrix())
+            print(f"{log_prefix}epoch={epoch}  loss_pred={loss_pred.item():.5f}  loss_sig={loss_sig.item():.5f}  "
+                  f"loss_rank={loss_rank.item():.5f}  loss_ws={loss_ws.item():.5f}  "
+                  f"col(at-risk)={cu:.4f}  col(safe)={cs:.4f}  ratio={cu/cs:.2f}", flush=True)
         if epoch == epochs - 1:
             last_total = loss.item()
     return encoder, predictor.g1_matrix(), last_total
@@ -177,7 +188,7 @@ if __name__ == "__main__":
     for label, train_fn in configs:
         u_vals, s_vals, loss_vals = [], [], []
         for seed in range(5):
-            encoder, G1_matrix, total_loss = train_fn(seed)
+            encoder, G1_matrix, total_loss = train_fn(seed, log_prefix=f"  [{label} seed={seed}] ")
             cu, cs = eval_cols(encoder, G1_matrix)
             u_vals.append(cu); s_vals.append(cs); loss_vals.append(total_loss)
             print(f"  {label}  seed={seed}  col(at-risk)={cu:.4f}  col(safe)={cs:.4f}  ratio={cu/cs:.2f}  final_loss={total_loss:.4f}", flush=True)
