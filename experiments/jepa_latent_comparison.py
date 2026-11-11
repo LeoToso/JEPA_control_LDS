@@ -3,12 +3,32 @@ import torch
 import torch.nn as nn
 
 from jepa_lds.systems import make_double_mode_system
-from jepa_lds.data import make_observation_model, make_modal_contaminated_x0_sampler, generate_dataset
+from jepa_lds.data import ObservationModel, make_modal_contaminated_x0_sampler, generate_dataset
 from jepa_lds.models import LinearEncoder
 from jepa_lds.losses import encode_window, _char_fn_gaussian_stat
 
 SYSTEM = make_double_mode_system(unstable_eig=1.0, stable_eig=0.6, mix_angle=0.6, name="double_mode_rho1")
-OBS_MODEL = make_observation_model(SYSTEM, obs_dim_signal=6, n_distractor=0, measurement_noise_std=0.02, seed=0)
+
+
+def make_partially_observable_obs_model(system, obs_dim_signal=6, measurement_noise_std=0.02, hide_mode="safe", seed=0):
+    """Builds C with ONE modal eigenvector exactly in its null space, so that
+    mode is genuinely unobservable (not just hard to see) -- rank(C) = 1,
+    PBH rank deficient at that mode's eigenvalue. Confirmed via PBH test:
+    rank([A-lam I; C]) drops from n to n-1 exactly at the hidden mode."""
+    _, V, Vinv = system.modal_decomposition()
+    idx_u = system.unstable_mode_index()
+    idx_s = 1 - idx_u
+    idx_hidden = idx_s if hide_mode == "safe" else idx_u
+    idx_visible = 1 - idx_hidden
+    rng = np.random.default_rng(seed)
+    C_tilde = rng.standard_normal((obs_dim_signal, system.n))
+    C_tilde[:, idx_hidden] = 0.0
+    C_tilde[:, idx_visible] /= np.linalg.norm(C_tilde[:, idx_visible])
+    C = (C_tilde @ Vinv).real
+    return ObservationModel(C=C, n_distractor=0, measurement_noise_std=measurement_noise_std)
+
+
+OBS_MODEL = make_partially_observable_obs_model(SYSTEM, obs_dim_signal=6, measurement_noise_std=0.02, hide_mode="safe", seed=0)
 SIGMA_STABLE = 1.0
 X0_SAMPLER = make_modal_contaminated_x0_sampler(
     SYSTEM, sigma_stable=SIGMA_STABLE, sigma_unstable_small=0.01, sigma_unstable_large=3.0, contamination_prob=0.1
@@ -117,19 +137,19 @@ def sigreg_loss_pinned(z, n_directions=16, n_t=17, t_max=4.0, eps=1e-6, lambda_v
     return torch.stack(stats).mean() + lambda_var * var_penalty
 
 
-def rank_reg_loss_latent(predictor, gamma1, gamma2):
-    """Hinge floor on G1 G1^T and G2^T G2, both now FREE matrices (no
-    encoder involved -- G2 is no longer implicitly defined via M)."""
-    loss = torch.tensor(0.0)
-    if gamma1 > 0:
-        G1 = predictor.G1.weight
-        eig1 = torch.linalg.eigvalsh(G1 @ G1.T)
-        loss = loss + torch.relu(gamma1 ** 2 - eig1).sum()
-    if gamma2 > 0:
-        G2 = predictor.G2.weight  # (H*d, n_hat)
-        eig2 = torch.linalg.eigvalsh(G2.T @ G2)
-        loss = loss + torch.relu(gamma2 ** 2 - eig2).sum()
-    return loss
+def rank_reg_loss_equality(predictor, gamma1, gamma2):
+    """Equality (normed) rank constraint: ||G1 G1^T - gamma1^2 I||_F^2 +
+    ||G2^T G2 - gamma2^2 I||_F^2, both now FREE matrices (no encoder
+    involved -- G2 is no longer implicitly defined via M). Unlike the hinge
+    floor (zero once eigenvalues clear gamma^2, inactive afterwards), this
+    pins eigenvalues AT gamma^2 throughout training, not just above it."""
+    n_hat = predictor.bottleneck_dim
+    I = torch.eye(n_hat)
+    G1 = predictor.G1.weight
+    loss1 = ((G1 @ G1.T - gamma1 ** 2 * I) ** 2).sum()
+    G2 = predictor.G2.weight  # (H*d, n_hat)
+    loss2 = ((G2.T @ G2 - gamma2 ** 2 * I) ** 2).sum()
+    return loss1 + loss2
 
 
 def weight_sharing_loss(predictor, M, encoder):
@@ -195,7 +215,7 @@ def train_standard_jepa(seed, epochs=EPOCHS, log_every=500, log_prefix=""):
     return encoder, predictor.g1_matrix(), last_total
 
 
-def train_jepa_rankreg(seed, lambda_ws=0.0, gamma=0.5, lambda_rank=25.0, epochs=EPOCHS, log_every=500, log_prefix=""):
+def train_jepa_rankreg(seed, lambda_ws=1.0, gamma=0.5, lambda_rank=25.0, epochs=EPOCHS, log_every=500, log_prefix=""):
     """L = L_pred + 25*L_SIGReg + lambda_rank*RankReg(G1,G2) + lambda_ws*L_ws."""
     torch.manual_seed(seed)
     encoder = LinearEncoder(OBS_MODEL.p, LATENT_DIM, bias=False)
@@ -211,7 +231,7 @@ def train_jepa_rankreg(seed, lambda_ws=0.0, gamma=0.5, lambda_rank=25.0, epochs=
         loss_pred = latent_prediction_loss(predictor, z_past, z_future_true)
         z_all = torch.cat([z_past.reshape(-1, LATENT_DIM), z_future_true.reshape(-1, LATENT_DIM)], dim=0)
         loss_sig = sigreg_loss_pinned(z_all, n_directions=16)
-        loss_rank = rank_reg_loss_latent(predictor, gamma, gamma)
+        loss_rank = rank_reg_loss_equality(predictor, gamma, gamma)
         loss_ws = weight_sharing_loss(predictor, M, encoder)
         loss = loss_pred + 25.0 * loss_sig + lambda_rank * loss_rank + lambda_ws * loss_ws
         loss.backward()
@@ -228,19 +248,15 @@ def train_jepa_rankreg(seed, lambda_ws=0.0, gamma=0.5, lambda_rank=25.0, epochs=
 
 if __name__ == "__main__":
     configs = [
-        ("JEPA with RankReg", train_jepa_rankreg),
+        ("Standard JEPA", train_standard_jepa, 0),
+        ("JEPA with RankReg", train_jepa_rankreg, 1),
     ]
 
-    print(f"Latent-space JEPA comparison, full-batch, {EPOCHS} epochs, sigma_stable={SIGMA_STABLE}", flush=True)
-    for label, train_fn in configs:
-        ru_vals, rs_vals, loss_vals = [], [], []
-        for seed in range(3):
-            encoder, G1_matrix, total_loss = train_fn(seed, log_prefix=f"  [{label} seed={seed}] ")
-            r2_u, r2_s = eval_r2(encoder, G1_matrix)
-            ru_vals.append(r2_u); rs_vals.append(r2_s); loss_vals.append(total_loss)
-            print(f"  {label}  seed={seed}  R2(at-risk)={r2_u:.4f}  R2(safe)={r2_s:.4f}  "
-                  f"mean_R2={0.5*(r2_u+r2_s):.4f}  final_loss={total_loss:.4f}", flush=True)
-        ru_mean, rs_mean = np.mean(ru_vals), np.mean(rs_vals)
-        print(f"{label}: MEAN R2(at-risk)={ru_mean:.4f}  R2(safe)={rs_mean:.4f}  "
-              f"mean_R2={0.5*(ru_mean+rs_mean):.4f}  mean_final_loss={np.mean(loss_vals):.4f}", flush=True)
+    print(f"Partially-observable system (1 of 2 modes observable), LATENT_DIM={LATENT_DIM} "
+          f"(misspecified vs. true observable rank=1), full-batch, {EPOCHS} epochs, sigma_stable={SIGMA_STABLE}", flush=True)
+    for label, train_fn, seed in configs:
+        encoder, G1_matrix, total_loss = train_fn(seed, log_prefix=f"  [{label} seed={seed}] ")
+        r2_u, r2_s = eval_r2(encoder, G1_matrix)
+        print(f"  {label}  seed={seed}  R2(at-risk)={r2_u:.4f}  R2(safe)={r2_s:.4f}  "
+              f"mean_R2={0.5*(r2_u+r2_s):.4f}  final_loss={total_loss:.4f}", flush=True)
     print("DONE", flush=True)
