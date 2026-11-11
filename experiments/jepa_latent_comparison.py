@@ -235,7 +235,7 @@ if __name__ == "__main__":
     print(f"Latent-space JEPA comparison, full-batch, {EPOCHS} epochs, sigma_stable={SIGMA_STABLE}", flush=True)
     for label, train_fn in configs:
         ru_vals, rs_vals, loss_vals = [], [], []
-        for seed in range(5):
+        for seed in range(3):
             encoder, G1_matrix, total_loss = train_fn(seed, log_prefix=f"  [{label} seed={seed}] ")
             r2_u, r2_s = eval_r2(encoder, G1_matrix)
             ru_vals.append(r2_u); rs_vals.append(r2_s); loss_vals.append(total_loss)
