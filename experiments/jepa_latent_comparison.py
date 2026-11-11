@@ -195,7 +195,7 @@ def train_standard_jepa(seed, epochs=EPOCHS, log_every=500, log_prefix=""):
     return encoder, predictor.g1_matrix(), last_total
 
 
-def train_jepa_rankreg(seed, lambda_ws=1.0, gamma=0.5, lambda_rank=25.0, epochs=EPOCHS, log_every=500, log_prefix=""):
+def train_jepa_rankreg(seed, lambda_ws=0.0, gamma=0.5, lambda_rank=25.0, epochs=EPOCHS, log_every=500, log_prefix=""):
     """L = L_pred + 25*L_SIGReg + lambda_rank*RankReg(G1,G2) + lambda_ws*L_ws."""
     torch.manual_seed(seed)
     encoder = LinearEncoder(OBS_MODEL.p, LATENT_DIM, bias=False)
@@ -228,7 +228,6 @@ def train_jepa_rankreg(seed, lambda_ws=1.0, gamma=0.5, lambda_rank=25.0, epochs=
 
 if __name__ == "__main__":
     configs = [
-        ("Standard JEPA", train_standard_jepa),
         ("JEPA with RankReg", train_jepa_rankreg),
     ]
 
