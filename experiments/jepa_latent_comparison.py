@@ -401,19 +401,15 @@ def train_literal_lemma2_rankreg(seed, lambda_ws=1.0, gamma=0.5, lambda_rank=25.
 
 
 if __name__ == "__main__":
-    configs = [
-        ("Literal Lemma-2 (d=1) + RankReg", train_literal_lemma2_rankreg, 2, False),
-    ]
-
-    print(f"Lemma-2 degenerate init (at-risk mode zeroed, safe mode exact, 1 dead dim; "
-          f"3rd config is the literal d=1 version with no dead dim at all), "
+    LAMBDA_RANKS = [25.0, 100.0, 500.0, 2000.0]
+    seed = 2
+    print(f"Literal Lemma-2 (d=1) + RankReg, sweeping lambda_rank, "
           f"full-batch, {EPOCHS} epochs, sigma_stable={SIGMA_STABLE}", flush=True)
-    for label, train_fn, seed, needs_2d_init in configs:
-        kwargs = {"log_prefix": f"  [{label} seed={seed}] "}
-        if needs_2d_init:
-            kwargs["init"] = build_lemma2_init(seed=100 + seed)
-        encoder, G1_matrix, total_loss = train_fn(seed, **kwargs)
+    for lambda_rank in LAMBDA_RANKS:
+        label = f"lambda_rank={lambda_rank}"
+        encoder, G1_matrix, total_loss = train_literal_lemma2_rankreg(
+            seed, lambda_rank=lambda_rank, log_prefix=f"  [{label}] ")
         r2_u, r2_s = eval_r2(encoder, G1_matrix)
-        print(f"  {label}  seed={seed}  R2(at-risk)={r2_u:.4f}  R2(safe)={r2_s:.4f}  "
+        print(f"  {label}  R2(at-risk)={r2_u:.4f}  R2(safe)={r2_s:.4f}  "
               f"mean_R2={0.5*(r2_u+r2_s):.4f}  final_loss={total_loss:.4f}", flush=True)
     print("DONE", flush=True)
