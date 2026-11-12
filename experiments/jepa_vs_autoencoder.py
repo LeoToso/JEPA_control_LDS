@@ -41,20 +41,22 @@ idx_s = 1 - idx_u
 def build_windows_with_state(batch, past_window, future_window):
     total = past_window + future_window
     n_ep, Tp1, _p = batch.y.shape
-    past_ys, future_ys, x_starts = [], [], []
+    past_ys, future_ys, x_starts, x_pasts = [], [], [], []
     for e in range(n_ep):
         for t in range(0, Tp1 - total + 1):
             past_ys.append(batch.y[e, t : t + past_window])
             future_ys.append(batch.y[e, t + past_window : t + total])
             x_starts.append(batch.x[e, t])
+            x_pasts.append(batch.x[e, t : t + past_window])  # true state over the SAME past window
     y_past = torch.tensor(np.stack(past_ys), dtype=torch.float32)
     y_future = torch.tensor(np.stack(future_ys), dtype=torch.float32)
     x_start = np.stack(x_starts)
-    return y_past, y_future, x_start
+    x_past = torch.tensor(np.stack(x_pasts), dtype=torch.float32)  # (N, L, n)
+    return y_past, y_future, x_start, x_past
 
 
-Y_PAST_FULL, Y_FUTURE_FULL, X_START_TRAIN = build_windows_with_state(TRAIN_BATCH, L, H)
-Y_PAST_TEST, Y_FUTURE_TEST, X_START_TEST = build_windows_with_state(TEST_BATCH, L, H)
+Y_PAST_FULL, Y_FUTURE_FULL, X_START_TRAIN, X_PAST_FULL = build_windows_with_state(TRAIN_BATCH, L, H)
+Y_PAST_TEST, Y_FUTURE_TEST, X_START_TEST, X_PAST_TEST = build_windows_with_state(TEST_BATCH, L, H)
 
 
 def to_modal_coords(x_raw):
@@ -175,11 +177,44 @@ def train_pure_autoencoder(seed, bottleneck_dim=BOTTLENECK_DIM, epochs=EPOCHS, l
     return encoder, G1.weight.detach().cpu().numpy()
 
 
+def train_state_autoencoder(seed, bottleneck_dim=BOTTLENECK_DIM, epochs=EPOCHS, log_every=500, log_prefix=""):
+    """Same encoder+G1 pipeline, but the decoder reconstructs the TRUE STATE
+    window (X_PAST_FULL, clean/low-noise proprioceptive info) instead of the
+    raw noisy observation window Y_PAST_FULL -- an oracle-ish comparison
+    point: how much does reconstructing the cleaner target change things,
+    given the identical encoder->bottleneck architecture?"""
+    torch.manual_seed(seed)
+    encoder = LinearEncoder(OBS_MODEL.p, LATENT_DIM, bias=False)
+    G1 = nn.Linear(LATENT_DIM * L, bottleneck_dim, bias=False)
+    n = SYSTEM.A.shape[0]
+    decoder = nn.Linear(bottleneck_dim, n * L, bias=False)
+    params = list(encoder.parameters()) + list(G1.parameters()) + list(decoder.parameters())
+    opt = torch.optim.Adam(params, lr=1e-2)
+    for epoch in range(epochs):
+        opt.zero_grad()
+        z_past = encode_window(encoder, Y_PAST_FULL)
+        b = Y_PAST_FULL.shape[0]
+        state = G1(z_past.reshape(b, -1))
+        x_hat = decoder(state).reshape(b, L, n)
+        loss = ((x_hat - X_PAST_FULL) ** 2).sum(dim=-1).mean()
+        loss.backward()
+        opt.step()
+        if log_every and (epoch % log_every == 0 or epoch == epochs - 1):
+            r2_u, r2_s = eval_r2(encoder, G1.weight.detach().cpu().numpy())
+            print(f"{log_prefix}epoch={epoch}  loss={loss.item():.5f}  "
+                  f"R2(at-risk)={r2_u:.4f}  R2(safe)={r2_s:.4f}  mean_R2={0.5*(r2_u+r2_s):.4f}", flush=True)
+    return encoder, G1.weight.detach().cpu().numpy()
+
+
 if __name__ == "__main__":
-    print(f"Standard JEPA vs Pure Autoencoder, passive system, random init, "
+    print(f"Standard JEPA vs Pure Autoencoder (observation) vs State Autoencoder, passive system, random init, "
           f"full-batch, {EPOCHS} epochs, {N_SEEDS} seeds, sigma_stable={SIGMA_STABLE}", flush=True)
 
-    for label, train_fn in [("Standard JEPA", train_standard_jepa), ("Pure Autoencoder", train_pure_autoencoder)]:
+    for label, train_fn in [
+        ("Standard JEPA", train_standard_jepa),
+        ("Pure Autoencoder (obs)", train_pure_autoencoder),
+        ("State Autoencoder", train_state_autoencoder),
+    ]:
         ru_vals, rs_vals = [], []
         for seed in range(N_SEEDS):
             encoder, G1_matrix = train_fn(seed, log_prefix=f"  [{label} seed={seed}] ")
