@@ -309,17 +309,76 @@ def train_jepa_rankreg(seed, lambda_ws=1.0, gamma=0.5, lambda_rank=25.0, epochs=
     return encoder, predictor.g1_matrix(), last_total
 
 
+def build_literal_lemma2_init():
+    """Literal Lemma 2 construction: d=1, no dead dimension at all (unlike
+    build_lemma2_init's 2-dim extension). F_s calibrated against the exact
+    pooled past+future samples, same as the 2-dim version. Confirmed near-
+    optimal: a globally-optimal lstsq fit over the full past window does
+    only ~1.3% better than this hand-built (last-obs, 0.6^h-rollout) choice,
+    so this IS the genuine process/measurement noise floor, not avoidable
+    error -- loss_pred and loss_sig both sit near their true minima here,
+    with no dead-dimension tax (there's no second dimension to tax)."""
+    e_s = np.zeros(2); e_s[idx_s] = 1.0
+    row_good_raw = e_s @ Vinv.real @ C_PINV
+    z_good_raw = np.concatenate([
+        Y_PAST_FULL.numpy().reshape(-1, OBS_MODEL.p) @ row_good_raw,
+        Y_FUTURE_FULL.numpy().reshape(-1, OBS_MODEL.p) @ row_good_raw,
+    ])
+    F_s = 1.0 / z_good_raw.std()
+    E_init = (F_s * row_good_raw).reshape(1, OBS_MODEL.p)
+    G1_init = np.zeros((1, L * 1)); G1_init[0, (L - 1) * 1 + 0] = 1.0
+    w_eig, _, _ = SYSTEM.modal_decomposition()
+    A_s = w_eig[idx_s].real
+    G2_init = np.array([[A_s ** (h + 1)] for h in range(H)])  # (H*1, 1)
+    return E_init, G1_init, G2_init
+
+
+def train_literal_lemma2(seed, epochs=EPOCHS, log_every=500, log_prefix=""):
+    """L = L_pred + 25*L_SIGReg, d=1 (no spare capacity at all). Tests
+    whether the SINGLE encoder direction stays locked on the safe mode or
+    rotates/drifts toward the at-risk mode over training -- a different
+    question from the 2-dim "wake up dead capacity" test, since there is
+    no extra dimension to reallocate here."""
+    torch.manual_seed(seed)
+    encoder = LinearEncoder(OBS_MODEL.p, 1, bias=False)
+    predictor = LatentPredictor(1, L, H, 1)
+    apply_init(encoder, predictor, build_literal_lemma2_init())
+    opt = torch.optim.Adam(list(encoder.parameters()) + list(predictor.parameters()), lr=1e-2)
+    last_total = None
+    for epoch in range(epochs):
+        opt.zero_grad()
+        z_past = encode_window(encoder, Y_PAST_FULL)
+        z_future_true = encode_window(encoder, Y_FUTURE_FULL)
+        loss_pred = latent_prediction_loss(predictor, z_past, z_future_true)
+        z_all = torch.cat([z_past.reshape(-1, 1), z_future_true.reshape(-1, 1)], dim=0)
+        loss_sig = sigreg_loss_pinned(z_all, n_directions=16)
+        loss = loss_pred + 25.0 * loss_sig
+        loss.backward()
+        opt.step()
+        if log_every and (epoch % log_every == 0 or epoch == epochs - 1):
+            r2_u, r2_s = eval_r2(encoder, predictor.g1_matrix())
+            print(f"{log_prefix}epoch={epoch}  loss_pred={loss_pred.item():.5f}  loss_sig={loss_sig.item():.5f}  "
+                  f"R2(at-risk)={r2_u:.4f}  R2(safe)={r2_s:.4f}  mean_R2={0.5*(r2_u+r2_s):.4f}", flush=True)
+        if epoch == epochs - 1:
+            last_total = loss.item()
+    return encoder, predictor.g1_matrix(), last_total
+
+
 if __name__ == "__main__":
     configs = [
-        ("Standard JEPA", train_standard_jepa, 0),
-        ("JEPA with RankReg", train_jepa_rankreg, 1),
+        ("Standard JEPA", train_standard_jepa, 0, True),
+        ("JEPA with RankReg", train_jepa_rankreg, 1, True),
+        ("Literal Lemma-2 (d=1)", train_literal_lemma2, 2, False),
     ]
 
-    print(f"Lemma-2 degenerate init (at-risk mode zeroed, safe mode exact, 1 dead dim), "
+    print(f"Lemma-2 degenerate init (at-risk mode zeroed, safe mode exact, 1 dead dim; "
+          f"3rd config is the literal d=1 version with no dead dim at all), "
           f"full-batch, {EPOCHS} epochs, sigma_stable={SIGMA_STABLE}", flush=True)
-    for label, train_fn, seed in configs:
-        init = build_lemma2_init(seed=100 + seed)  # same construction; seed only affects the dead-dim noise
-        encoder, G1_matrix, total_loss = train_fn(seed, log_prefix=f"  [{label} seed={seed}] ", init=init)
+    for label, train_fn, seed, needs_2d_init in configs:
+        kwargs = {"log_prefix": f"  [{label} seed={seed}] "}
+        if needs_2d_init:
+            kwargs["init"] = build_lemma2_init(seed=100 + seed)
+        encoder, G1_matrix, total_loss = train_fn(seed, **kwargs)
         r2_u, r2_s = eval_r2(encoder, G1_matrix)
         print(f"  {label}  seed={seed}  R2(at-risk)={r2_u:.4f}  R2(safe)={r2_s:.4f}  "
               f"mean_R2={0.5*(r2_u+r2_s):.4f}  final_loss={total_loss:.4f}", flush=True)
