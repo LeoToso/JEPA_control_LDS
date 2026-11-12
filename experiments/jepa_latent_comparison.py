@@ -3,32 +3,12 @@ import torch
 import torch.nn as nn
 
 from jepa_lds.systems import make_double_mode_system
-from jepa_lds.data import ObservationModel, make_modal_contaminated_x0_sampler, generate_dataset
+from jepa_lds.data import make_observation_model, make_modal_contaminated_x0_sampler, generate_dataset
 from jepa_lds.models import LinearEncoder
 from jepa_lds.losses import encode_window, _char_fn_gaussian_stat
 
 SYSTEM = make_double_mode_system(unstable_eig=1.0, stable_eig=0.6, mix_angle=0.6, name="double_mode_rho1")
-
-
-def make_partially_observable_obs_model(system, obs_dim_signal=6, measurement_noise_std=0.02, hide_mode="safe", seed=0):
-    """Builds C with ONE modal eigenvector exactly in its null space, so that
-    mode is genuinely unobservable (not just hard to see) -- rank(C) = 1,
-    PBH rank deficient at that mode's eigenvalue. Confirmed via PBH test:
-    rank([A-lam I; C]) drops from n to n-1 exactly at the hidden mode."""
-    _, V, Vinv = system.modal_decomposition()
-    idx_u = system.unstable_mode_index()
-    idx_s = 1 - idx_u
-    idx_hidden = idx_s if hide_mode == "safe" else idx_u
-    idx_visible = 1 - idx_hidden
-    rng = np.random.default_rng(seed)
-    C_tilde = rng.standard_normal((obs_dim_signal, system.n))
-    C_tilde[:, idx_hidden] = 0.0
-    C_tilde[:, idx_visible] /= np.linalg.norm(C_tilde[:, idx_visible])
-    C = (C_tilde @ Vinv).real
-    return ObservationModel(C=C, n_distractor=0, measurement_noise_std=measurement_noise_std)
-
-
-OBS_MODEL = make_partially_observable_obs_model(SYSTEM, obs_dim_signal=6, measurement_noise_std=0.02, hide_mode="safe", seed=0)
+OBS_MODEL = make_observation_model(SYSTEM, obs_dim_signal=6, n_distractor=0, measurement_noise_std=0.02, seed=0)
 SIGMA_STABLE = 1.0
 X0_SAMPLER = make_modal_contaminated_x0_sampler(
     SYSTEM, sigma_stable=SIGMA_STABLE, sigma_unstable_small=0.01, sigma_unstable_large=3.0, contamination_prob=0.1
@@ -87,6 +67,47 @@ def to_modal_coords(x_raw):
 
 W_TRAIN = to_modal_coords(X_START_TRAIN)  # (N_train, 2): col0=at-risk, col1=safe
 W_TEST = to_modal_coords(X_START_TEST)    # (N_test, 2)
+
+C_PINV = np.linalg.pinv(OBS_MODEL.C)
+SIGMA_SAFE = W_TRAIN[:, 1].std()  # std of the true safe-mode coordinate
+
+
+def build_lemma2_init(dead_scale=0.05, seed=0):
+    """Lemma 2 (Toso, LeCun, Anderson, Bounou -- arXiv:2610.07540) degenerate
+    solution, adapted to our 2-dim encoder/bottleneck: dimension 0 is the
+    EXACT degenerate construction (F = [0, F_s] in modal coords, zeroing the
+    at-risk column and keeping only F_s = 1/sigma_safe on the safe column --
+    this makes z0 standard-Gaussian and gives an exact zero one-step error
+    predictor via the safe mode's own 0.6-decay rollout). Dimension 1 is
+    "dead": near-zero, uninformative about either mode, representing unused
+    capacity -- this is what we're testing whether training can wake up."""
+    rng = np.random.default_rng(seed)
+    F_s = 1.0 / SIGMA_SAFE
+    e_s = np.zeros(2); e_s[idx_s] = F_s  # row in MODAL coords, at-risk column exactly zero
+    e_row_good = e_s @ Vinv.real @ C_PINV          # (p,) -> E's good row, in raw y-space
+    e_row_dead = dead_scale * rng.standard_normal(OBS_MODEL.p)
+    E_init = np.stack([e_row_good, e_row_dead], axis=0)  # (2, p)
+
+    # G1: bottleneck row 0 picks out the LAST past timestep's good-dim value
+    # (state ~= z_t, the simplest self-consistent filter for this construction).
+    # Flattening order of z_past.reshape(b,-1) is time-major: index = t*latent_dim + dim.
+    g1_row_good = np.zeros(L * LATENT_DIM)
+    g1_row_good[(L - 1) * LATENT_DIM + 0] = 1.0
+    g1_row_dead = dead_scale * rng.standard_normal(L * LATENT_DIM)
+    G1_init = np.stack([g1_row_good, g1_row_dead], axis=0)  # (2, L*latent_dim)
+
+    # G2 per-step blocks (H, d, n_hat): good output dim depends only on the
+    # good bottleneck dim, rolled forward via the safe mode's own eigenvalue
+    # (0.6) decay -- z_{t+h} = A_s^h * z_t exactly, since F_s cancels; dead
+    # output dim depends only on the dead bottleneck dim (small random).
+    w_eig, _, _ = SYSTEM.modal_decomposition()
+    A_s = w_eig[idx_s].real
+    G2_blocks = np.zeros((H, LATENT_DIM, BOTTLENECK_DIM))
+    for h in range(H):
+        G2_blocks[h, 0, 0] = A_s ** (h + 1)
+        G2_blocks[h, 1, 1] = dead_scale * rng.standard_normal()
+    G2_init = G2_blocks.reshape(H * LATENT_DIM, BOTTLENECK_DIM)  # (H*d, n_hat)
+    return E_init, G1_init, G2_init
 
 
 class LatentPredictor(nn.Module):
@@ -189,11 +210,22 @@ def eval_r2(encoder, G1_matrix):
     return float(r2[0]), float(r2[1])  # r2_at_risk, r2_safe
 
 
-def train_standard_jepa(seed, epochs=EPOCHS, log_every=500, log_prefix=""):
+def apply_init(encoder, predictor, init):
+    if init is None:
+        return
+    E_init, G1_init, G2_init = init
+    with torch.no_grad():
+        encoder.linear.weight.copy_(torch.tensor(E_init, dtype=torch.float32))
+        predictor.G1.weight.copy_(torch.tensor(G1_init, dtype=torch.float32))
+        predictor.G2.weight.copy_(torch.tensor(G2_init, dtype=torch.float32))
+
+
+def train_standard_jepa(seed, epochs=EPOCHS, log_every=500, log_prefix="", init=None):
     """L = L_pred + 25*L_SIGReg. No RankReg, no weight-sharing, no M."""
     torch.manual_seed(seed)
     encoder = LinearEncoder(OBS_MODEL.p, LATENT_DIM, bias=False)
     predictor = LatentPredictor(LATENT_DIM, L, H, BOTTLENECK_DIM)
+    apply_init(encoder, predictor, init)
     opt = torch.optim.Adam(list(encoder.parameters()) + list(predictor.parameters()), lr=1e-2)
     last_total = None
     for epoch in range(epochs):
@@ -215,11 +247,12 @@ def train_standard_jepa(seed, epochs=EPOCHS, log_every=500, log_prefix=""):
     return encoder, predictor.g1_matrix(), last_total
 
 
-def train_jepa_rankreg(seed, lambda_ws=1.0, gamma=0.5, lambda_rank=25.0, epochs=EPOCHS, log_every=500, log_prefix=""):
+def train_jepa_rankreg(seed, lambda_ws=1.0, gamma=0.5, lambda_rank=25.0, epochs=EPOCHS, log_every=500, log_prefix="", init=None):
     """L = L_pred + 25*L_SIGReg + lambda_rank*RankReg(G1,G2) + lambda_ws*L_ws."""
     torch.manual_seed(seed)
     encoder = LinearEncoder(OBS_MODEL.p, LATENT_DIM, bias=False)
     predictor = LatentPredictor(LATENT_DIM, L, H, BOTTLENECK_DIM)
+    apply_init(encoder, predictor, init)
     M = nn.Linear(BOTTLENECK_DIM, OBS_MODEL.p * H, bias=False)
     params = list(encoder.parameters()) + list(predictor.parameters()) + list(M.parameters())
     opt = torch.optim.Adam(params, lr=1e-2)
@@ -252,10 +285,11 @@ if __name__ == "__main__":
         ("JEPA with RankReg", train_jepa_rankreg, 1),
     ]
 
-    print(f"Partially-observable system (1 of 2 modes observable), LATENT_DIM={LATENT_DIM} "
-          f"(misspecified vs. true observable rank=1), full-batch, {EPOCHS} epochs, sigma_stable={SIGMA_STABLE}", flush=True)
+    print(f"Lemma-2 degenerate init (at-risk mode zeroed, safe mode exact, 1 dead dim), "
+          f"full-batch, {EPOCHS} epochs, sigma_stable={SIGMA_STABLE}", flush=True)
     for label, train_fn, seed in configs:
-        encoder, G1_matrix, total_loss = train_fn(seed, log_prefix=f"  [{label} seed={seed}] ")
+        init = build_lemma2_init(seed=100 + seed)  # same construction; seed only affects the dead-dim noise
+        encoder, G1_matrix, total_loss = train_fn(seed, log_prefix=f"  [{label} seed={seed}] ", init=init)
         r2_u, r2_s = eval_r2(encoder, G1_matrix)
         print(f"  {label}  seed={seed}  R2(at-risk)={r2_u:.4f}  R2(safe)={r2_s:.4f}  "
               f"mean_R2={0.5*(r2_u+r2_s):.4f}  final_loss={total_loss:.4f}", flush=True)
