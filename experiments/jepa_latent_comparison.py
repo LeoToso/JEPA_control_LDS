@@ -364,9 +364,45 @@ def train_literal_lemma2(seed, epochs=EPOCHS, log_every=500, log_prefix=""):
     return encoder, predictor.g1_matrix(), last_total
 
 
+def train_literal_lemma2_rankreg(seed, lambda_ws=1.0, gamma=0.5, lambda_rank=25.0, epochs=EPOCHS, log_every=500, log_prefix=""):
+    """Same literal d=1 init, now with RankReg (equality) + weight-sharing.
+    With d=1, G1G1^T and G2^TG2 are scalars -- RankReg can only pin their
+    MAGNITUDE near gamma^2, it has no spare direction to redirect toward the
+    at-risk mode (unlike the 2-dim case). Tests whether pinning the scale
+    changes the drift-back-to-safe-mode dynamics even without that."""
+    torch.manual_seed(seed)
+    encoder = LinearEncoder(OBS_MODEL.p, 1, bias=False)
+    predictor = LatentPredictor(1, L, H, 1)
+    apply_init(encoder, predictor, build_literal_lemma2_init())
+    M = nn.Linear(1, OBS_MODEL.p * H, bias=False)
+    params = list(encoder.parameters()) + list(predictor.parameters()) + list(M.parameters())
+    opt = torch.optim.Adam(params, lr=1e-2)
+    last_total = None
+    for epoch in range(epochs):
+        opt.zero_grad()
+        z_past = encode_window(encoder, Y_PAST_FULL)
+        z_future_true = encode_window(encoder, Y_FUTURE_FULL)
+        loss_pred = latent_prediction_loss(predictor, z_past, z_future_true)
+        z_all = torch.cat([z_past.reshape(-1, 1), z_future_true.reshape(-1, 1)], dim=0)
+        loss_sig = sigreg_loss_pinned(z_all, n_directions=16)
+        loss_rank = rank_reg_loss_equality(predictor, gamma, gamma)
+        loss_ws = weight_sharing_loss(predictor, M, encoder)
+        loss = loss_pred + 25.0 * loss_sig + lambda_rank * loss_rank + lambda_ws * loss_ws
+        loss.backward()
+        opt.step()
+        if log_every and (epoch % log_every == 0 or epoch == epochs - 1):
+            r2_u, r2_s = eval_r2(encoder, predictor.g1_matrix())
+            print(f"{log_prefix}epoch={epoch}  loss_pred={loss_pred.item():.5f}  loss_sig={loss_sig.item():.5f}  "
+                  f"loss_rank={loss_rank.item():.5f}  loss_ws={loss_ws.item():.5f}  "
+                  f"R2(at-risk)={r2_u:.4f}  R2(safe)={r2_s:.4f}  mean_R2={0.5*(r2_u+r2_s):.4f}", flush=True)
+        if epoch == epochs - 1:
+            last_total = loss.item()
+    return encoder, predictor.g1_matrix(), last_total
+
+
 if __name__ == "__main__":
     configs = [
-        ("Literal Lemma-2 (d=1)", train_literal_lemma2, 2, False),
+        ("Literal Lemma-2 (d=1) + RankReg", train_literal_lemma2_rankreg, 2, False),
     ]
 
     print(f"Lemma-2 degenerate init (at-risk mode zeroed, safe mode exact, 1 dead dim; "
