@@ -366,8 +366,6 @@ def train_literal_lemma2(seed, epochs=EPOCHS, log_every=500, log_prefix=""):
 
 if __name__ == "__main__":
     configs = [
-        ("Standard JEPA", train_standard_jepa, 0, True),
-        ("JEPA with RankReg", train_jepa_rankreg, 1, True),
         ("Literal Lemma-2 (d=1)", train_literal_lemma2, 2, False),
     ]
 
