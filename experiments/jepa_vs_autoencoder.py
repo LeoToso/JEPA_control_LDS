@@ -19,7 +19,7 @@ L, H = 4, 4
 LATENT_DIM = 2
 BOTTLENECK_DIM = 2
 EPOCHS = 8000
-N_SEEDS = 5
+N_SEEDS = 2
 
 # PASSIVE system (no actions) -- the original setting, before the later
 # action-conditioned detour. Fully observable (rank(C)=2): both modes are
@@ -125,7 +125,7 @@ def eval_r2(encoder, G1_matrix):
     return float(r2[0]), float(r2[1])  # r2_at_risk, r2_safe
 
 
-def train_standard_jepa(seed, epochs=EPOCHS):
+def train_standard_jepa(seed, epochs=EPOCHS, log_every=500, log_prefix=""):
     """L = L_pred + 25*L_SIGReg, random init."""
     torch.manual_seed(seed)
     encoder = LinearEncoder(OBS_MODEL.p, LATENT_DIM, bias=False)
@@ -142,10 +142,14 @@ def train_standard_jepa(seed, epochs=EPOCHS):
         loss = loss_pred + 25.0 * loss_sig
         loss.backward()
         opt.step()
+        if log_every and (epoch % log_every == 0 or epoch == epochs - 1):
+            r2_u, r2_s = eval_r2(encoder, predictor.g1_matrix())
+            print(f"{log_prefix}epoch={epoch}  loss_pred={loss_pred.item():.5f}  loss_sig={loss_sig.item():.5f}  "
+                  f"R2(at-risk)={r2_u:.4f}  R2(safe)={r2_s:.4f}  mean_R2={0.5*(r2_u+r2_s):.4f}", flush=True)
     return encoder, predictor.g1_matrix()
 
 
-def train_pure_autoencoder(seed, bottleneck_dim=BOTTLENECK_DIM, epochs=EPOCHS):
+def train_pure_autoencoder(seed, bottleneck_dim=BOTTLENECK_DIM, epochs=EPOCHS, log_every=500, log_prefix=""):
     """Reconstruction-only baseline: encoder + G1 + decoder, MSE on the past
     window. No prediction loss, no SIGReg -- a pure rank-2 linear
     autoencoder, which by Eckart-Young converges to the exact PCA solution."""
@@ -164,6 +168,10 @@ def train_pure_autoencoder(seed, bottleneck_dim=BOTTLENECK_DIM, epochs=EPOCHS):
         loss = ((y_hat - Y_PAST_FULL) ** 2).sum(dim=-1).mean()
         loss.backward()
         opt.step()
+        if log_every and (epoch % log_every == 0 or epoch == epochs - 1):
+            r2_u, r2_s = eval_r2(encoder, G1.weight.detach().cpu().numpy())
+            print(f"{log_prefix}epoch={epoch}  loss={loss.item():.5f}  "
+                  f"R2(at-risk)={r2_u:.4f}  R2(safe)={r2_s:.4f}  mean_R2={0.5*(r2_u+r2_s):.4f}", flush=True)
     return encoder, G1.weight.detach().cpu().numpy()
 
 
@@ -174,7 +182,7 @@ if __name__ == "__main__":
     for label, train_fn in [("Standard JEPA", train_standard_jepa), ("Pure Autoencoder", train_pure_autoencoder)]:
         ru_vals, rs_vals = [], []
         for seed in range(N_SEEDS):
-            encoder, G1_matrix = train_fn(seed)
+            encoder, G1_matrix = train_fn(seed, log_prefix=f"  [{label} seed={seed}] ")
             r2_u, r2_s = eval_r2(encoder, G1_matrix)
             ru_vals.append(r2_u); rs_vals.append(r2_s)
             print(f"  {label}  seed={seed}  R2(at-risk)={r2_u:.4f}  R2(safe)={r2_s:.4f}  "
